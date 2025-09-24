@@ -1,0 +1,59 @@
+#!/bin/sh
+# Get a Topdesk incident by id or number
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} incidents-get (--id ID | --number NUMBER) [--raw|--pretty]
+
+Fetch one incident. With --number, returns the first match unless --all.
+
+Options:
+  --id ID             Incident id (UUID)
+  --number N          Incident number
+  --all               When using --number, return all matches
+  --raw               Do not pretty print
+  --pretty            Pretty print JSON via jq
+EOF
+}
+
+ID=""; NUM=""; ALL=0; RAW=0; PRETTY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --number) req_arg "$@"; NUM=$2; shift 2 ;;
+    --all) ALL=1; shift ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+if [ -n "$ID" ]; then
+  "$_root/tools/call" GET "/tas/api/incidents/$ID" ${RAW:+--raw} ${PRETTY:+--pretty}
+  exit $?
+fi
+
+if [ -n "$NUM" ]; then
+  # Query by number via list endpoint; API may support filters on number
+  num_query=$(query_add "" "number" "$NUM")
+  res=$("$_root/tools/call" GET "/tas/api/incidents" --query "$num_query" --raw)
+  if [ "$ALL" = 1 ]; then
+    printf '%s\n' "$res"
+  else
+    if command_exists jq; then
+      printf '%s\n' "$res" | jq '.[0]'
+    else
+      printf '%s\n' "$res"
+    fi
+  fi
+  exit 0
+fi
+
+err "must provide --id or --number"; usage >&2; exit 2

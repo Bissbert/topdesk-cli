@@ -1,0 +1,34 @@
+#!/bin/sh
+# Get a Topdesk person by id
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} persons-get --id ID [--path PATH] [--raw|--pretty]
+
+Default path: /tas/api/persons/{id}
+EOF
+}
+
+ID=""; PATH_OVERRIDE=""; RAW=0; PRETTY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$ID" ] || { err "--id is required"; exit 2; }
+path=${PATH_OVERRIDE:-/tas/api/persons/$ID}
+
+"$_root/tools/call" GET "$path" ${RAW:+--raw} ${PRETTY:+--pretty}
+

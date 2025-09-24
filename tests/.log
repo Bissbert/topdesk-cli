@@ -1,0 +1,1 @@
+-sS --connect-timeout 30 --max-time 30 -X GET -H Accept: application/json --dump-header /tmp/topdesk-call-headers.bbxQUi -o /tmp/topdesk-call-body.mjO8dz -w %{http_code} -- https://topdesk.example.com/tas/api/operators

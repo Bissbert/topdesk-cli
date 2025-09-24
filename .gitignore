@@ -1,0 +1,19 @@
+# Build/generated
+completions/
+.tmp-tests/
+
+# Local config (if ever created in-tree)
+config
+config.sh
+
+# Editor/OS junk
+.DS_Store
+*.swp
+*.swo
+*~
+.zcompdump*
+.idea/
+.vscode/
+
+# Sensitive local file (never checked in)
+.secret

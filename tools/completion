@@ -1,0 +1,77 @@
+#!/bin/sh
+# Output shell completion scripts (bash, zsh)
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} completion [bash|zsh]
+
+Print a completion script for the given shell to stdout.
+EOF
+}
+
+shell=${1:-}
+case "$shell" in
+  -h|--help|"") usage; [ -n "$shell" ] && exit 0 || exit 2 ;;
+  bash)
+    _prog="$TOOLBOX_NAME"
+    cat <<'EOS' | sed "s/__PROG__/${_prog}/g"
+_toolbox_complete() {
+  local cur prev words cword prog
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  prog=${COMP_WORDS[0]}
+
+  if [[ "$prev" == "--config" ]]; then
+    compopt -o filenames 2>/dev/null
+    return 0
+  fi
+
+  if (( COMP_CWORD == 1 )); then
+    local cmds opts
+    cmds=$("$prog" __commands 2>/dev/null)
+    opts='-h --help -V --version --no-color --log-level --config help'
+    COMPREPLY=( $(compgen -W "$cmds $opts" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]}" == "help" ]]; then
+    local cmds
+    cmds=$("$prog" __commands 2>/dev/null)
+    COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
+    return 0
+  fi
+
+  compopt -o filenames 2>/dev/null
+}
+complete -F _toolbox_complete __PROG__
+EOS
+    ;;
+  zsh)
+    _prog="$TOOLBOX_NAME"
+    cat <<'EOS' | sed "s/__PROG__/${_prog}/g"
+#compdef __PROG__
+_toolbox_complete() {
+  local -a cmds
+  cmds=($( __PROG__ __commands 2>/dev/null ))
+  if (( CURRENT == 2 )); then
+    _describe 'command' cmds
+    _arguments '-h[help]' '--help[help]' '--no-color[disable color]' '--log-level[set log level]:level:(debug info warn error)' '--config[config file]:file:_files' '-V[version]' '1: :->cmd'
+    return
+  fi
+  if [[ $words[2] == help ]]; then
+    _describe 'command' cmds
+    return
+  fi
+  _files
+}
+compdef _toolbox_complete __PROG__
+EOS
+    ;;
+  *) err "unknown shell: %s" "$shell"; exit 2 ;;
+esac
+

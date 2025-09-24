@@ -1,0 +1,37 @@
+#!/bin/sh
+# Create a Topdesk incident
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} incidents-create --data JSON|@FILE [--raw|--pretty]
+
+Create an incident by POSTing JSON to /tas/api/incidents.
+
+Options:
+  --data PAYLOAD       JSON string or @file.json
+  --raw                Print raw response
+  --pretty             Pretty-print JSON via jq
+EOF
+}
+
+DATA=""; RAW=0; PRETTY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --data) req_arg "$@"; DATA=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$DATA" ] || { err "--data is required"; exit 2; }
+
+"$_root/tools/call" POST "/tas/api/incidents" --data "$DATA" ${RAW:+--raw} ${PRETTY:+--pretty}
+

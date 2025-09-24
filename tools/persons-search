@@ -1,0 +1,74 @@
+#!/bin/sh
+# Search Topdesk persons with a query string
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} persons-search --query QS [--param KEY=VAL]... [--path PATH] [--raw|--pretty]
+
+Calls GET on /tas/api/persons with the supplied query string.
+EOF
+}
+
+QS=""; PARAMS=""; PATH_OVERRIDE=""; RAW=0; PRETTY=0
+
+add_param() {
+  if [ -n "$PARAMS" ]; then
+    PARAMS="${PARAMS}
+${1}=${2}"
+  else
+    PARAMS="${1}=${2}"
+  fi
+}
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --query) req_arg "$@"; QS=$2; shift 2 ;;
+    --param)
+      req_arg "$@"
+      arg=$2
+      shift 2
+      case "$arg" in
+        *=*) key=${arg%%=*}; val=${arg#*=} ;;
+        *)
+          [ "$#" -gt 0 ] || { err "missing value for --param"; exit 2; }
+          key=$arg
+          val=$1
+          shift
+          ;;
+      esac
+      add_param "$key" "$val"
+      ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+if [ -z "$QS" ] && [ -z "$PARAMS" ]; then
+  err "--query or --param is required"; exit 2;
+fi
+path=${PATH_OVERRIDE:-/tas/api/persons}
+base_qs="$QS"
+if [ -n "$PARAMS" ]; then
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    key=${pair%%=*}
+    val=${pair#*=}
+    base_qs=$(query_add "$base_qs" "$key" "$val")
+  done <<EOF
+$PARAMS
+EOF
+fi
+
+if [ -n "$base_qs" ]; then
+  "$_root/tools/call" GET "$path" --query "$base_qs" ${RAW:+--raw} ${PRETTY:+--pretty}
+else
+  "$_root/tools/call" GET "$path" ${RAW:+--raw} ${PRETTY:+--pretty}
+fi

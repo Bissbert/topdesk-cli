@@ -1,0 +1,61 @@
+#!/bin/sh
+# Upload an attachment to a Topdesk incident (multipart/form-data)
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} incidents-attachments-upload --id ID --file PATH [--name NAME] [--path PATH] [--timeout SEC] [--insecure]
+
+Default path: /tas/api/incidents/{id}/attachments
+EOF
+}
+
+ID=""; FILE=""; NAME=""; PATH_OVERRIDE=""; TIMEOUT=${TDX_TIMEOUT:-30}
+case ${TDX_VERIFY_TLS:-1} in
+  0) INSECURE=1 ;;
+  *) INSECURE=0 ;;
+esac
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --file) req_arg "$@"; FILE=$2; shift 2 ;;
+    --name) req_arg "$@"; NAME=$2; shift 2 ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --timeout) req_arg "$@"; TIMEOUT=$2; shift 2 ;;
+    --insecure) INSECURE=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$ID" ] || { err "--id is required"; exit 2; }
+[ -n "$FILE" ] || { err "--file is required"; exit 2; }
+[ -f "$FILE" ] || { err "file not found: %s" "$FILE"; exit 2; }
+
+[ -n "${TDX_BASE_URL:-}" ] || { err "TDX_BASE_URL not set"; exit 2; }
+base=${TDX_BASE_URL%/}
+path=${PATH_OVERRIDE:-/tas/api/incidents/$ID/attachments}
+url="$base$path"
+
+set -- -sS --fail --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -X POST
+[ "${INSECURE}" = 1 ] && set -- "$@" -k
+
+# Auth (token/header/basic)
+if [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  set -- "$@" -H "$TDX_AUTH_HEADER"
+elif [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  set -- "$@" -H "Authorization: ${TDX_AUTH_TOKEN}"
+elif [ -n "${TDX_USER:-}" ] || [ -n "${TDX_PASS:-}" ]; then
+  set -- "$@" -u "${TDX_USER:-}:${TDX_PASS:-}"
+fi
+
+# multipart form
+fname=${NAME:-$(basename -- "$FILE")}
+set -- "$@" -F "file=@${FILE};filename=${fname}"
+
+curl "$@" -- "$url"

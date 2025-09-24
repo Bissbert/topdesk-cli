@@ -1,0 +1,2 @@
+-sS --connect-timeout 30 --max-time 30 -X GET -H Accept: application/json -H Authorization: Bearer testtoken --dump-header /tmp/topdesk-call-headers.IQe1EK -o /tmp/topdesk-call-body.VVF9Pg -w %{http_code} -- http://mock.local/tas/api/incidents?foo=bar&baz=value%20with%20space
+-sS --connect-timeout 30 --max-time 30 -X GET -H Accept: application/json -H Authorization: Bearer testtoken --dump-header /tmp/topdesk-call-headers.oqKpzo -o /tmp/topdesk-call-body.052vEE -w %{http_code} -- http://mock.local/tas/api/incidents?pageSize=2

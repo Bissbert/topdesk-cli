@@ -1,0 +1,106 @@
+#!/bin/sh
+# Dispatcher for Topdesk toolkit (based on toolbox.sh)
+set -eu
+
+TOOLBOX_NAME=${TOOLBOX_NAME:-topdesk}
+TOOLBOX_VERSION=${TOOLBOX_VERSION:-}
+
+_this="$0"
+case "$_this" in
+  /*) : ;;
+  *) _this=$(command -v -- "$_this" 2>/dev/null || printf %s "$_this") ;;
+esac
+_bindir=${_this%/*}
+_rootdir=${_bindir%/bin}
+if [ -z "$TOOLBOX_VERSION" ] && [ -f "$_rootdir/VERSION" ]; then
+  TOOLBOX_VERSION=$(sed -n '1p' "$_rootdir/VERSION" 2>/dev/null || printf '0.0.0')
+fi
+TOOLBOX_VERSION=${TOOLBOX_VERSION:-0.1.0}
+LIB_DIR=${LIB_DIR:-"$_rootdir/lib"}
+TOOLS_DIR=${TOOLS_DIR:-"$_rootdir/tools"}
+SHARE_DIR=${SHARE_DIR:-"$_rootdir/share"}
+
+. "$LIB_DIR/common.sh"
+. "$LIB_DIR/log.sh"
+. "$LIB_DIR/args.sh"
+. "$LIB_DIR/config.sh"
+
+export TOOLBOX_NAME TOOLBOX_VERSION LIB_DIR TOOLS_DIR SHARE_DIR
+
+usage() {
+  cat <<EOF
+${TOOLBOX_NAME} ${TOOLBOX_VERSION}
+
+Usage: ${TOOLBOX_NAME} [global-options] <command> [args]
+
+Global options:
+  -h, --help         Show this help
+  -V, --version      Show version
+  --no-color         Disable colored output
+  --log-level LVL    Set log level (debug,info,warn,error)
+  --config FILE      Use specific config file
+
+Commands:
+$(list_commands | sed 's/^/  /')
+
+  Help:
+  ${TOOLBOX_NAME} help [command]
+EOF
+}
+
+list_commands() {
+  if [ -d "$TOOLS_DIR" ]; then
+    find "$TOOLS_DIR" -mindepth 1 -maxdepth 1 -type f -perm -u+x \
+      -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+  fi
+}
+
+show_version() { printf '%s\n' "${TOOLBOX_NAME} ${TOOLBOX_VERSION}"; }
+
+CFG_FILE=""
+LOG_LEVEL=${LOG_LEVEL:-info}
+COLOR=${COLOR:-auto}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    -V|--version) show_version; exit 0 ;;
+    --no-color) COLOR=never; shift ;;
+    --log-level) req_arg "$@"; LOG_LEVEL=$2; shift 2 ;;
+    --config) req_arg "$@"; CFG_FILE=$2; shift 2 ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+export LOG_LEVEL COLOR
+setup_colors "$COLOR"
+load_config "$CFG_FILE"
+
+cmd=${1:-}
+[ -n "$cmd" ] || { usage; exit 0; }
+shift || true
+
+case "$cmd" in
+  __commands)
+    list_commands ;;
+  help)
+    sub=${1:-}
+    if [ -n "$sub" ]; then
+      if subpath=$(resolve_command "$sub"); then
+        "$subpath" --help
+      else
+        err "unknown command: %s" "$sub"; exit 2
+      fi
+    else
+      usage
+    fi ;;
+  *)
+    if subpath=$(resolve_command "$cmd"); then
+      exec "$subpath" "$@"
+    else
+      err "unknown command: %s" "$cmd"; note "see '%s help' for a list" "$TOOLBOX_NAME"; exit 2
+    fi ;;
+esac
+

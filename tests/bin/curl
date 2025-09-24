@@ -1,0 +1,149 @@
+#!/bin/sh
+# Mock curl used in tests. Logs args and returns fixture JSON based on URL.
+set -eu
+
+log=${TEST_CURL_LOG:-}
+[ -n "$log" ] && printf '%s\n' "$*" >> "$log"
+
+out_file=""
+dump_header=""
+write_fmt=""
+
+set -- "$@"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out_file=$2; shift 2 ;;
+    --dump-header) dump_header=$2; shift 2 ;;
+    -w|--write-out) write_fmt=$2; shift 2 ;;
+    -H|-X|--connect-timeout|--max-time|--retry|--retry-delay|--cacert|--capath|-d|--data|--data-binary|--header|--accept|--content)
+      shift 2 ;;
+    --retry-all-errors|-s|-S|-k|--insecure)
+      shift ;;
+    -sS)
+      shift ;;
+    --)
+      shift
+      break ;;
+    *)
+      break ;;
+  esac
+done
+
+url=${1:-}
+
+http_code=200
+reason="OK"
+body=''
+
+case "$url" in
+  http://mock.local/tas/api/incidents\?number=*)
+    num=${url#*number=}
+    num=${num%%&*}
+    body=$(printf '[{"id":"iid-1","number":"%s","briefDescription":"ByNumber"}]' "$num")
+    ;;
+  http://mock.local/tas/api/incidents\?*)
+    qs=${url#*?}
+    # pagination
+    pageSize=100
+    start=0
+    # parse simple qs
+    IFS='&'; for kv in $qs; do IFS='='; set -- $kv; k=$1; v=${2:-}; IFS='&';
+      [ "$k" = "pageSize" ] && pageSize=$v
+      [ "$k" = "start" ] && start=$v
+      [ "$k" = "number" ] && num=$v
+    done
+    if [ -n "${num:-}" ]; then
+      body=$(printf '[{"id":"iid-1","number":"%s","briefDescription":"ByNumber"}]' "$num")
+    else
+      if [ "$start" -eq 0 ]; then
+        body='[{"id":"iid-1","number":"I1","briefDescription":"A","caller":{"name":"Alice"},"operator":{"name":"Op"},"status":"New","priority":"3","creationDate":"2024-01-01"},{"id":"iid-2","number":"I2","briefDescription":"B","caller":{"name":"Bob"},"operator":{"name":"Op"},"status":"Open","priority":"2","creationDate":"2024-01-02"}]'
+      elif [ "$start" -eq 2 ]; then
+        body='[{"id":"iid-3","number":"I3","briefDescription":"C","caller":{"name":"Cara"},"operator":{"name":"Op"},"status":"Open","priority":"1","creationDate":"2024-01-03"}]'
+      else
+        body='[]'
+      fi
+    fi
+    ;;
+  http://mock.local/tas/api/incidents)
+    body='[{"id":"iid-1","number":"I1","briefDescription":"A"}]'
+    ;;
+  http://mock.local/tas/api/incidents/iid-1)
+    body='{"id":"iid-1","number":"I1","briefDescription":"A"}' ;;
+  http://mock.local/tas/api/persons\?*)
+    qs=${url#*?}
+    start=0; pageSize=100
+    IFS='&'; for kv in $qs; do IFS='='; set -- $kv; k=$1; v=${2:-}; IFS='&'; [ "$k" = start ] && start=$v; [ "$k" = pageSize ] && pageSize=$v; done
+    if [ "$start" -eq 0 ]; then body='[{"id":"p1","networkLoginName":"alice","firstName":"Alice","lastName":"A"},{"id":"p2","networkLoginName":"bob","firstName":"Bob","lastName":"B"}]'; else body='[]'; fi
+    ;;
+  http://mock.local/tas/api/persons)
+    body='[{"id":"p1","networkLoginName":"alice","firstName":"Alice","lastName":"A"},{"id":"p2","networkLoginName":"bob","firstName":"Bob","lastName":"B"}]'
+    ;;
+  http://mock.local/tas/api/persons/p1)
+    body='{"id":"p1","networkLoginName":"alice","firstName":"Alice","lastName":"A"}' ;;
+  http://mock.local/tas/api/assetmgmt/assets\?*)
+    qs=${url#*?}
+    start=0; pageSize=100
+    IFS='&'; for kv in $qs; do IFS='='; set -- $kv; k=$1; v=${2:-}; IFS='&'; [ "$k" = start ] && start=$v; [ "$k" = pageSize ] && pageSize=$v; done
+    if [ "$start" -eq 0 ]; then body='[{"id":"a1","objectNumber":"A-001","name":"Laptop"}]'; else body='[]'; fi
+    ;;
+  http://mock.local/tas/api/assetmgmt/assets)
+    body='[{"id":"a1","objectNumber":"A-001","name":"Laptop"}]'
+    ;;
+  http://mock.local/tas/api/assetmgmt/assets/a1)
+    body='{"id":"a1","objectNumber":"A-001","name":"Laptop"}' ;;
+  http://mock.local/tas/api/operators\?*)
+    qs=${url#*?}
+    start=0; pageSize=100
+    IFS='&'; for kv in $qs; do IFS='='; set -- $kv; k=$1; v=${2:-}; IFS='&'; [ "$k" = start ] && start=$v; [ "$k" = pageSize ] && pageSize=$v; done
+    if [ "$start" -eq 0 ]; then body='[{"id":"op1","name":"Operator One","networkLoginName":"op1"},{"id":"op2","name":"Operator Two","networkLoginName":"op2"}]'; else body='[]'; fi
+    ;;
+  http://mock.local/tas/api/operators)
+    body='[{"id":"op1","name":"Operator One","networkLoginName":"op1"},{"id":"op2","name":"Operator Two","networkLoginName":"op2"}]'
+    ;;
+  http://mock.local/tas/api/operators/op1)
+    body='{"id":"op1","name":"Operator One","networkLoginName":"op1"}' ;;
+  http://mock.local/error/404)
+    body='{"error":"Not Found"}'
+    http_code=404
+    reason="Not Found"
+    ;;
+  http://mock.local/error/timeout)
+    http_code=000
+    reason="Timeout"
+    if [ -n "$dump_header" ]; then : >"$dump_header"; fi
+    if [ -n "$out_file" ]; then : >"$out_file"; fi
+    if [ -n "$write_fmt" ]; then printf '000'; fi
+    exit 28
+    ;;
+  http://mock.local/error/500)
+    body='{"error":"Boom"}'
+    http_code=500
+    reason="Internal Server Error"
+    ;;
+  *)
+    body='{}'
+    ;;
+esac
+
+if [ -n "$dump_header" ]; then
+  printf 'HTTP/1.1 %s %s\r\n' "$http_code" "$reason" >"$dump_header"
+fi
+
+if [ -n "$out_file" ]; then
+  printf '%s' "$body" >"$out_file"
+else
+  printf '%s' "$body"
+fi
+
+if [ -n "$write_fmt" ]; then
+  if [ "$write_fmt" = '%{http_code}' ]; then
+    printf '%s' "$http_code"
+  else
+    printf '%s' "$write_fmt"
+  fi
+fi
+
+case "$http_code" in
+  404) exit 0 ;;
+  500) exit 0 ;;
+esac

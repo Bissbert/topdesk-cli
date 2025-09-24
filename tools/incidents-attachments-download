@@ -1,0 +1,59 @@
+#!/bin/sh
+# Download an attachment from a Topdesk incident
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} incidents-attachments-download --id ID --attachment-id AID [--output FILE] [--path PATH] [--timeout SEC] [--insecure]
+
+Default path: /tas/api/incidents/{id}/attachments/{attachmentId}/download
+EOF
+}
+
+ID=""; AID=""; OUT=""; PATH_OVERRIDE=""; TIMEOUT=${TDX_TIMEOUT:-30}
+case ${TDX_VERIFY_TLS:-1} in
+  0) INSECURE=1 ;;
+  *) INSECURE=0 ;;
+esac
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --attachment-id) req_arg "$@"; AID=$2; shift 2 ;;
+    --output) req_arg "$@"; OUT=$2; shift 2 ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --timeout) req_arg "$@"; TIMEOUT=$2; shift 2 ;;
+    --insecure) INSECURE=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$ID" ] || { err "--id is required"; exit 2; }
+[ -n "$AID" ] || { err "--attachment-id is required"; exit 2; }
+
+[ -n "${TDX_BASE_URL:-}" ] || { err "TDX_BASE_URL not set"; exit 2; }
+base=${TDX_BASE_URL%/}
+def_path="/tas/api/incidents/$ID/attachments/$AID/download"
+url="$base${PATH_OVERRIDE:-$def_path}"
+
+set -- -sS --fail --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -X GET
+[ "${INSECURE}" = 1 ] && set -- "$@" -k
+
+if [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  set -- "$@" -H "$TDX_AUTH_HEADER"
+elif [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  set -- "$@" -H "Authorization: ${TDX_AUTH_TOKEN}"
+elif [ -n "${TDX_USER:-}" ] || [ -n "${TDX_PASS:-}" ]; then
+  set -- "$@" -u "${TDX_USER:-}:${TDX_PASS:-}"
+fi
+
+if [ -n "$OUT" ]; then
+  curl "$@" -- "$url" -o "$OUT"
+else
+  curl "$@" -- "$url"
+fi

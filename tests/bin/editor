@@ -1,0 +1,6 @@
+#!/bin/sh
+# Stub editor used in tests to append a marker to the file being "edited".
+set -eu
+
+file=${1:?missing file}
+printf '# edited by stub\n' >> "$file"

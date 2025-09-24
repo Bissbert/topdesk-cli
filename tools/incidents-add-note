@@ -1,0 +1,64 @@
+#!/bin/sh
+# Add a note to a Topdesk incident
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} incidents-add-note --id ID (--text TXT | --file FILE) [--path PATH] [--raw|--pretty]
+
+Posts a note for an incident. Default path: /tas/api/incidents/{id}/notes
+
+Options:
+  --id ID            Incident id
+  --text TXT         Note text
+  --file FILE        Read note text from file
+  --path PATH        Override endpoint path
+  --raw              Raw response
+  --pretty           Pretty print JSON
+EOF
+}
+
+json_escape_stream() {
+  awk 'BEGIN { ORS=""; printf "\"" }
+       {
+         gsub(/\\/, "\\\\");
+         gsub(/"/, "\\\"");
+         gsub(/\r/, "\\r");
+         gsub(/\t/, "\\t");
+         if (NR > 1) { printf "\\n"; }
+         printf "%s", $0
+       }
+       END { printf "\"" }'
+}
+
+ID=""; TEXT=""; FILE=""; PATH_OVERRIDE=""; RAW=0; PRETTY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --text) req_arg "$@"; TEXT=$2; shift 2 ;;
+    --file) req_arg "$@"; FILE=$2; shift 2 ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$ID" ] || { err "--id is required"; exit 2; }
+if [ -z "$TEXT" ] && [ -z "$FILE" ]; then err "--text or --file is required"; exit 2; fi
+
+if [ -n "$FILE" ]; then
+  TEXT=$(cat "$FILE")
+fi
+
+path=${PATH_OVERRIDE:-/tas/api/incidents/$ID/notes}
+payload_json=$(printf '%s' "$TEXT" | json_escape_stream)
+payload=$(printf '{"text": %s}' "$payload_json")
+
+"$_root/tools/call" POST "$path" --data "$payload" ${RAW:+--raw} ${PRETTY:+--pretty}

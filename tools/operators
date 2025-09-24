@@ -1,0 +1,183 @@
+#!/bin/sh
+# List Topdesk operators
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+PAGE_SIZE_DEFAULT=${TDX_PAGE_SIZE:-100}
+PAGE_PARAM_DEFAULT=${TDX_PAGE_PARAM:-pageSize}
+OFFSET_PARAM_DEFAULT=${TDX_OFFSET_PARAM:-start}
+FIELDS_DEFAULT=${TDX_OPERATOR_FIELDS:-id,name,networkLoginName,email}
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} operators [options]
+
+List operators via /tas/api/operators (or custom --path). JSON by default.
+
+Options:
+  -h, --help           Show help
+  --query QS           Query string (e.g. "department=IT")
+  --param KEY=VAL      Add query param (repeatable; also accepts "--param KEY VAL")
+  --path PATH          Override endpoint path (default: /tas/api/operators)
+  --all                Fetch all pages
+  --limit N            Stop after N items
+  --page-size N        Items per page (default: $PAGE_SIZE_DEFAULT)
+  --page-param NAME    Page size parameter name (default: $PAGE_PARAM_DEFAULT)
+  --offset-param NAME  Offset/start parameter name (default: $OFFSET_PARAM_DEFAULT)
+  --format FMT         json|tsv|csv
+  --headers            Include header row for tsv/csv
+  --fields LIST        Comma-separated fields (default: $FIELDS_DEFAULT)
+  --raw                Raw JSON
+  --pretty             Pretty JSON (jq)
+EOF
+}
+
+QS=""; PARAMS=""; PATH_OVERRIDE=""; FORMAT=json; HEADERS=0; RAW=0; PRETTY=0
+FIELDS=$FIELDS_DEFAULT
+ALL=0; LIMIT=""; PAGE_SIZE=$PAGE_SIZE_DEFAULT; PAGE_PARAM=${TDX_PAGE_PARAM:-$PAGE_PARAM_DEFAULT}; OFFSET_PARAM=${TDX_OFFSET_PARAM:-$OFFSET_PARAM_DEFAULT}
+
+add_param() {
+  if [ -n "$PARAMS" ]; then
+    PARAMS="${PARAMS}
+${1}=${2}"
+  else
+    PARAMS="${1}=${2}"
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --query) req_arg "$@"; QS=$2; shift 2 ;;
+    --param)
+      req_arg "$@"
+      arg=$2
+      shift 2
+      case "$arg" in
+        *=*) key=${arg%%=*}; val=${arg#*=} ;;
+        *)
+          [ "$#" -gt 0 ] || { err "missing value for --param"; exit 2; }
+          key=$arg
+          val=$1
+          shift
+          ;;
+      esac
+      add_param "$key" "$val"
+      ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --all) ALL=1; shift ;;
+    --limit) req_arg "$@"; LIMIT=$2; shift 2 ;;
+    --page-size) req_arg "$@"; PAGE_SIZE=$2; shift 2 ;;
+    --page-param) req_arg "$@"; PAGE_PARAM=$2; shift 2 ;;
+    --offset-param) req_arg "$@"; OFFSET_PARAM=$2; shift 2 ;;
+    --format) req_arg "$@"; FORMAT=$2; shift 2 ;;
+    --headers) HEADERS=1; shift ;;
+    --fields) req_arg "$@"; FIELDS=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+path=${PATH_OVERRIDE:-/tas/api/operators}
+
+base_qs="$QS"
+if [ -n "$PARAMS" ]; then
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    key=${pair%%=*}
+    val=${pair#*=}
+    base_qs=$(query_add "$base_qs" "$key" "$val")
+  done <<EOF
+$PARAMS
+EOF
+fi
+
+if [ "$ALL" = 1 ] || [ -n "$LIMIT" ]; then
+  total=0; start=${TDX_OFFSET_START:-0}; printed_header=0
+  if [ "$FORMAT" = json ]; then
+    command_exists jq || { err "jq is required for paginated json output"; exit 2; }
+    (
+      while :; do
+        q=$(query_add "$base_qs" "$PAGE_PARAM" "$PAGE_SIZE")
+        q=$(query_add "$q" "$OFFSET_PARAM" "$start")
+        res=$("$_root/tools/call" GET "$path" --query "$q" --raw)
+        count=$(printf '%s' "$res" | jq 'length' 2>/dev/null || echo 0)
+        [ "$count" -eq 0 ] && break
+        if [ -n "$LIMIT" ]; then
+          remain=$(( LIMIT - total ))
+          if [ "$remain" -le 0 ]; then break; fi
+          if [ "$remain" -lt "$count" ]; then
+            printf '%s' "$res" | jq -c --argjson limit "$remain" '.[:$limit][]'
+            total=$(( total + remain ))
+            break
+          fi
+        fi
+        printf '%s' "$res" | jq -c '.[]'
+        total=$(( total + count ))
+        [ "$count" -lt "$PAGE_SIZE" ] && break
+        if [ -n "$LIMIT" ] && [ "$total" -ge "$LIMIT" ]; then break; fi
+        start=$(( start + PAGE_SIZE ))
+      done
+    ) | jq -s '.'
+  else
+    while :; do
+      q=$(query_add "$base_qs" "$PAGE_PARAM" "$PAGE_SIZE")
+      q=$(query_add "$q" "$OFFSET_PARAM" "$start")
+      command_exists jq || { err "jq is required for --format %s" "$FORMAT"; exit 2; }
+      printer='@tsv'; [ "$FORMAT" = csv ] && printer='@csv'
+      JQ_FIELDS=""; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ -n "$ff" ] || continue; [ -z "$JQ_FIELDS" ] && JQ_FIELDS="(.${ff}? // \"\")" || JQ_FIELDS="$JQ_FIELDS, (.${ff}? // \"\")"; OLDIFS=','; IFS=','; done; IFS=$OLDIFS
+      JQ_ROW="[$JQ_FIELDS]"
+      if [ "$printed_header" = 0 ] && [ "$HEADERS" = 1 ]; then
+        hdr_json=$(printf '['; i=0; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ $i -gt 0 ] && printf ','; printf '"%s"' "$ff"; i=$((i+1)); OLDIFS=','; IFS=','; done; IFS=$OLDIFS; printf ']')
+        printf '%s\n' "$hdr_json" | jq -r "$printer"
+        printed_header=1
+      fi
+      page_json=$("$_root/tools/call" GET "$path" --query "$q" --raw)
+      count=$(printf '%s' "$page_json" | jq 'length')
+      if [ -n "$LIMIT" ]; then
+        remain=$(( LIMIT - total ))
+        if [ "$remain" -le 0 ]; then break; fi
+        if [ "$remain" -lt "$count" ]; then
+          jq_prog='.[:$limit] | .[] | '"$JQ_ROW"' | '"$printer"
+          printf '%s' "$page_json" | jq -r --argjson limit "$remain" "$jq_prog"
+          total=$(( total + remain ))
+          break
+        fi
+      fi
+      jq_prog='.[] | '"$JQ_ROW"' | '"$printer"
+      printf '%s' "$page_json" | jq -r "$jq_prog"
+      total=$(( total + count ))
+      [ "$count" -lt "$PAGE_SIZE" ] && break
+      if [ -n "$LIMIT" ] && [ "$total" -ge "$LIMIT" ]; then break; fi
+      start=$(( start + PAGE_SIZE ))
+    done
+  fi
+  exit 0
+fi
+
+if [ "$FORMAT" = json ]; then
+  if [ -n "$base_qs" ]; then
+    "$_root/tools/call" GET "$path" --query "$base_qs" ${RAW:+--raw} ${PRETTY:+--pretty}
+  else
+    "$_root/tools/call" GET "$path" ${RAW:+--raw} ${PRETTY:+--pretty}
+  fi
+  exit $?
+fi
+
+command_exists jq || { err "jq is required for --format %s" "$FORMAT"; exit 2; }
+printer='@tsv'; [ "$FORMAT" = csv ] && printer='@csv'
+JQ_FIELDS=""; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ -n "$ff" ] || continue; [ -z "$JQ_FIELDS" ] && JQ_FIELDS="(.${ff}? // \"\")" || JQ_FIELDS="$JQ_FIELDS, (.${ff}? // \"\")"; OLDIFS=','; IFS=','; done; IFS=$OLDIFS
+if [ "$HEADERS" = 1 ]; then
+  hdr_json=$(printf '['; i=0; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ $i -gt 0 ] && printf ','; printf '"%s"' "$ff"; i=$((i+1)); OLDIFS=','; IFS=','; done; IFS=$OLDIFS; printf ']')
+  printf '%s\n' "$hdr_json" | jq -r "$printer"
+fi
+if [ -n "$base_qs" ]; then
+  "$_root/tools/call" GET "$path" --query "$base_qs" --raw | jq -r ".[] | [$JQ_FIELDS] | $printer"
+else
+  "$_root/tools/call" GET "$path" --raw | jq -r ".[] | [$JQ_FIELDS] | $printer"
+fi

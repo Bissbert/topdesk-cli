@@ -1,0 +1,217 @@
+#!/bin/sh
+# Low-level HTTP caller for Topdesk API
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+TIMEOUT_DEFAULT=${TDX_TIMEOUT:-30}
+RETRY_DEFAULT=${TDX_RETRY:-0}
+RETRY_DELAY_DEFAULT=${TDX_RETRY_DELAY:-0}
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} call <METHOD> <PATH> [options]
+
+Perform an HTTP request to Topdesk API. PATH is appended to TDX_BASE_URL.
+
+Options:
+  -h, --help            Show help
+  -d, --data JSON|@FILE Send JSON request body (POST/PUT/PATCH)
+  -H, --header H        Add extra header (can repeat)
+  --accept TYPE         Accept header (default: application/json)
+  --content TYPE        Content-Type header (default: application/json)
+  --query QS            Query string to append (e.g. "a=b&c=d")
+  --param KEY=VAL       Add query parameter (can repeat; also accepts "--param KEY VAL")
+  --timeout SEC         Override timeout (default: $TIMEOUT_DEFAULT)
+  --retry N             Retry count (default: $RETRY_DEFAULT)
+  --retry-delay SEC     Retry delay seconds (default: $RETRY_DELAY_DEFAULT)
+  --cacert FILE         CA certificate file
+  --capath DIR          CA directory
+  --insecure            Do not verify TLS (curl -k)
+  --raw                 Print raw response (no pretty printing)
+  --pretty              Pretty-print JSON via jq if available
+
+Environment/config:
+  TDX_BASE_URL   Base URL, e.g. https://topdesk.example.com
+  TDX_USER       Username for Basic auth (optional)
+  TDX_PASS       Password for Basic auth (optional)
+  TDX_AUTH_HEADER Custom header, e.g. "Authorization: Bearer <token>"
+  TDX_VERIFY_TLS  1 (default) or 0 to skip verification
+  TDX_TIMEOUT     Default timeout (seconds)
+EOF
+}
+
+[ "$#" -ge 1 ] || { usage >&2; exit 2; }
+case ${1:-} in -h|--help) usage; exit 0;; esac
+
+METHOD=$1; shift || true
+PATH_IN=${1:-}; [ -n "$PATH_IN" ] || { err "missing PATH"; usage >&2; exit 2; }; shift || true
+
+DATA=""; ACCEPT="application/json"; CONTENT="application/json"
+TIMEOUT=${TDX_TIMEOUT:-30}; INSECURE=0; RAW=0; PRETTY=0; QUERY=""; HEADERS=""; PARAMS=""
+RETRY=${TDX_RETRY:-0}; RETRY_DELAY=${TDX_RETRY_DELAY:-0}; CACERT=""; CAPATH=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    -d|--data) req_arg "$@"; DATA=$2; shift 2 ;;
+    -H|--header) req_arg "$@"; HEADERS="$HEADERS\n$2"; shift 2 ;;
+    --accept) req_arg "$@"; ACCEPT=$2; shift 2 ;;
+    --content) req_arg "$@"; CONTENT=$2; shift 2 ;;
+    --query) req_arg "$@"; QUERY=$2; shift 2 ;;
+    --param)
+      req_arg "$@"
+      arg=$2
+      shift 2
+      case "$arg" in
+        *=*) key=${arg%%=*}; val=${arg#*=} ;;
+        *)
+          [ "$#" -gt 0 ] || { err "missing value for --param"; exit 2; }
+          key=$arg
+          val=$1
+          shift
+          ;;
+      esac
+      if [ -n "$PARAMS" ]; then
+        PARAMS="${PARAMS}
+${key}=${val}"
+      else
+        PARAMS="${key}=${val}"
+      fi
+      ;;
+    --timeout) req_arg "$@"; TIMEOUT=$2; shift 2 ;;
+    --insecure) INSECURE=1; shift ;;
+    --retry) req_arg "$@"; RETRY=$2; shift 2 ;;
+    --retry-delay) req_arg "$@"; RETRY_DELAY=$2; shift 2 ;;
+    --cacert) req_arg "$@"; CACERT=$2; shift 2 ;;
+    --capath) req_arg "$@"; CAPATH=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "${TDX_BASE_URL:-}" ] || { err "TDX_BASE_URL not set"; exit 2; }
+
+if [ -n "$PARAMS" ]; then
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    key=${pair%%=*}
+    val=${pair#*=}
+    QUERY=$(query_add "$QUERY" "$key" "$val")
+  done <<EOF
+$PARAMS
+EOF
+fi
+
+# Respect TDX_VERIFY_TLS=0 unless overridden by --insecure flag
+if [ "${INSECURE}" = 0 ] && [ "${TDX_VERIFY_TLS:-1}" = 0 ]; then
+  INSECURE=1
+fi
+
+# Build URL
+base=${TDX_BASE_URL%/}
+path=/$(printf '%s' "$PATH_IN" | sed 's/^\/*//')
+[ -n "$QUERY" ] && qs="?$QUERY" || qs=""
+url="$base$path$qs"
+
+set -- -sS --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -X "$METHOD"
+[ "${INSECURE}" = 1 ] && set -- "$@" -k
+if [ "$RETRY" -gt 0 ] 2>/dev/null; then
+  set -- "$@" --retry "$RETRY" --retry-all-errors
+  [ "$RETRY_DELAY" -gt 0 ] 2>/dev/null && set -- "$@" --retry-delay "$RETRY_DELAY"
+fi
+[ -n "$CACERT" ] && set -- "$@" --cacert "$CACERT"
+[ -n "$CAPATH" ] && set -- "$@" --capath "$CAPATH"
+
+# Headers
+set -- "$@" -H "Accept: $ACCEPT"
+case "$METHOD" in POST|PUT|PATCH) set -- "$@" -H "Content-Type: $CONTENT" ;; esac
+
+# Auth (priority: explicit header, token, then basic auth)
+if [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  set -- "$@" -H "$TDX_AUTH_HEADER"
+elif [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  set -- "$@" -H "Authorization: ${TDX_AUTH_TOKEN}"
+elif [ -n "${TDX_USER:-}" ] || [ -n "${TDX_PASS:-}" ]; then
+  set -- "$@" -u "${TDX_USER:-}:${TDX_PASS:-}"
+fi
+
+# Extra headers (one per line in HEADERS)
+if [ -n "$HEADERS" ]; then
+  old_ifs=$IFS; IFS='\n'
+  for h in $(printf '%s\n' "$HEADERS" | sed '/^$/d'); do
+    IFS=$old_ifs
+    set -- "$@" -H "$h"
+    old_ifs='\n'; IFS=$old_ifs
+  done
+  IFS=$old_ifs
+fi
+
+# Body
+if [ -n "$DATA" ]; then
+  case "$DATA" in @*) set -- "$@" --data-binary "$DATA" ;; *) set -- "$@" --data "$DATA" ;; esac
+fi
+
+tmp_body=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-body.XXXXXX") || exit 1
+tmp_headers=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-headers.XXXXXX") || { rm -f "$tmp_body"; exit 1; }
+cleanup() { rm -f "$tmp_body" "$tmp_headers"; }
+trap cleanup EXIT INT TERM HUP
+
+set +e
+http_code=$(curl "$@" --dump-header "$tmp_headers" -o "$tmp_body" -w '%{http_code}' -- "$url")
+curl_status=$?
+set -e
+
+if [ "$curl_status" -ne 0 ]; then
+  case "$curl_status" in
+    6) err "request failed: could not resolve host (curl %s)" "$curl_status" ;;
+    7) err "request failed: connection refused (curl %s)" "$curl_status" ;;
+    28) err "request timed out after %s seconds" "$TIMEOUT" ;;
+    *) err "request failed with curl exit %s" "$curl_status" ;;
+  esac
+  if [ -s "$tmp_body" ]; then
+    note "response: %s" "$(head -c 400 "$tmp_body" | tr '\r' ' ' )"
+  fi
+  exit 3
+fi
+
+status_line=$(sed -n '1p' "$tmp_headers" | tr -d '\r')
+status_reason=${status_line#* }
+status_reason=${status_reason#${http_code}}
+status_reason=$(printf '%s' "$status_reason" | sed 's/^ *//')
+
+case "$http_code" in
+  2??|204)
+    :
+    ;;
+  "")
+    err "request completed without HTTP status"
+    exit 3
+    ;;
+  *)
+    err "HTTP %s %s" "$http_code" "$status_reason"
+    if [ -s "$tmp_body" ]; then
+      snippet=$(head -c 600 "$tmp_body" | tr '\r' ' ')
+      note "response body: %s" "$snippet"
+    fi
+    case "$http_code" in
+      4??) exit 4 ;;
+      5??) exit 5 ;;
+      *) exit 6 ;;
+    esac
+    ;;
+esac
+
+if [ "$RAW" = 1 ]; then
+  cat "$tmp_body"
+else
+  if [ "$PRETTY" = 1 ] && command_exists jq && [ -s "$tmp_body" ]; then
+    jq . "$tmp_body"
+  else
+    cat "$tmp_body"
+  fi
+fi

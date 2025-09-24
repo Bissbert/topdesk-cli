@@ -1,0 +1,42 @@
+#!/bin/sh
+# Update a Topdesk person
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<'USAGE'
+Usage: ${TOOLBOX_NAME} persons-update --id ID --data JSON|@FILE [--method PATCH|PUT] [--path PATH] [--raw|--pretty]
+
+Update a person via PATCH (default) or PUT to /tas/api/persons/{id}.
+USAGE
+}
+
+ID=""; DATA=""; METHOD=PATCH; PATH_OVERRIDE=""; RAW=0; PRETTY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --id) req_arg "$@"; ID=$2; shift 2 ;;
+    --data) req_arg "$@"; DATA=$2; shift 2 ;;
+    --method) req_arg "$@"; METHOD=$2; shift 2 ;;
+    --path) req_arg "$@"; PATH_OVERRIDE=$2; shift 2 ;;
+    --raw) RAW=1; shift ;;
+    --pretty) PRETTY=1; shift ;;
+    --) shift; break ;;
+    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+
+[ -n "$ID" ] || { err "--id is required"; exit 2; }
+[ -n "$DATA" ] || { err "--data is required"; exit 2; }
+
+case "$METHOD" in
+  PATCH|PUT) : ;;
+  *) err "invalid --method: %s" "$METHOD"; exit 2 ;;
+esac
+
+path=${PATH_OVERRIDE:-/tas/api/persons/$ID}
+
+"$_root/tools/call" "$METHOD" "$path" --data "$DATA" ${RAW:+--raw} ${PRETTY:+--pretty}
