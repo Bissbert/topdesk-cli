@@ -26,6 +26,80 @@ _toolbox_complete() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
   prog=${COMP_WORDS[0]}
 
+  _toolbox_call_needs_arg() {
+    case "$1" in
+      --accept|--content|--query|--param|--timeout|--retry|--retry-delay|
+      --cacert|--capath|--data|-d|--header|-H|--output|--tee|--config|
+      --log-level)
+        return 0 ;;
+    esac
+    return 1
+  }
+
+  _toolbox_call_file_option() {
+    case "$1" in
+      --output|--tee|--cacert|--capath|--config)
+        return 0 ;;
+    esac
+    return 1
+  }
+
+  _toolbox_complete_call() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    local call_opts='--accept --content --query --param --timeout --retry --retry-delay --cacert --capath --data -d --header -H --insecure --raw --pretty --output --tee --dry-run --log-level --config --help -h --cacert --capath'
+
+    if _toolbox_call_needs_arg "$prev"; then
+      if _toolbox_call_file_option "$prev"; then
+        compopt -o filenames 2>/dev/null
+      fi
+      return
+    fi
+
+    if [[ "$cur" == -* ]]; then
+      COMPREPLY=( $(compgen -W "--accept --content --query --param --timeout --retry --retry-delay --cacert --capath --data -d --header -H --insecure --raw --pretty --output --tee --dry-run --log-level --config --help -h" -- "$cur") )
+      return
+    fi
+
+    local expect_arg=""
+    local have_method=0
+    local word
+    for ((i=2;i<COMP_CWORD;i++)); do
+      word="${COMP_WORDS[i]}"
+      if [ -n "$expect_arg" ]; then
+        expect_arg=""
+        continue
+      fi
+      case "$word" in
+        --accept|--content|--query|--param|--timeout|--retry|--retry-delay|
+        --cacert|--capath|--data|-d|--header|-H|--output|--tee|--config|--log-level)
+          expect_arg=1
+          continue ;;
+        --insecure|--raw|--pretty|--dry-run|-h|--help)
+          continue ;;
+        -* )
+          continue ;;
+        GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)
+          have_method=1
+          continue ;;
+        *)
+          if [ $have_method -eq 0 ]; then
+            have_method=1
+            continue
+          fi
+          ;;
+      esac
+    done
+
+    if [ $have_method -eq 0 ]; then
+      COMPREPLY=( $(compgen -W 'GET POST PUT PATCH DELETE HEAD OPTIONS' -- "$cur") )
+      return
+    fi
+
+    compopt -o filenames 2>/dev/null
+  }
+
   if [[ "$prev" == "--config" ]]; then
     compopt -o filenames 2>/dev/null
     return 0
@@ -43,6 +117,11 @@ _toolbox_complete() {
     local cmds
     cmds=$("$prog" __commands 2>/dev/null)
     COMPREPLY=( $(compgen -W "$cmds" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]}" == "call" ]]; then
+    _toolbox_complete_call
     return 0
   fi
 
@@ -67,6 +146,40 @@ _toolbox_complete() {
     _describe 'command' cmds
     return
   fi
+  if [[ $words[2] == call ]]; then
+    local -a call_opts
+    call_opts=(
+      '--accept[set Accept header]:type'
+      '--content[set Content-Type header]:type'
+      '--query[append query string]:query'
+      '--param[add query parameter]:key=value'
+      '--timeout[override timeout]:seconds'
+      '--retry[retry count]:count'
+      '--retry-delay[retry delay seconds]:seconds'
+      '--cacert[path to CA certificate]:file:_files'
+      '--capath[path to CA directory]:file:_files'
+      '--data[supply request body]:data'
+      '-d[supply request body]:data'
+      '--header[additional header]:header'
+      '-H[additional header]:header'
+      '--output[write body to file]:file:_files'
+      '--tee[tee body to file]:file:_files'
+      '--insecure[skip TLS verification]'
+      '--raw[print raw response]'
+      '--pretty[pretty-print via jq]'
+      '--dry-run[print curl command only]'
+      '--log-level[set log level]:level:(debug info warn error)'
+      '--config[config file]:file:_files'
+      '--help[help]'
+      '-h[help]'
+    )
+    _arguments -s \
+      "${call_opts[@]}" \
+      '1:method:(GET POST PUT PATCH DELETE HEAD OPTIONS)' \
+      '2:path:_files' \
+      '*::args:_files'
+    return
+  fi
   _files
 }
 compdef _toolbox_complete __PROG__
@@ -74,4 +187,3 @@ EOS
     ;;
   *) err "unknown shell: %s" "$shell"; exit 2 ;;
 esac
-

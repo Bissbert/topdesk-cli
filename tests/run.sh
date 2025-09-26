@@ -4,7 +4,7 @@ set -eu
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/helpers.sh"
 
-echo 1..31
+echo 1..33
 t=1
 
 # 1) dispatcher help
@@ -262,6 +262,16 @@ if grep -F -- '-X PATCH' "$TEST_CURL_LOG" >/dev/null 2>&1 && grep -F -- 'tas/api
 else
   not_ok $t "assets-update"
 fi
+t=$((t+1))
+
+# 32) completion bash includes call options
+comp=$(topdesk completion bash || true)
+if contains "$comp" '--dry-run' && contains "$comp" 'GET POST'; then ok $t "completion bash call options"; else not_ok $t "completion bash call options"; fi
+t=$((t+1))
+
+# 33) completion zsh includes call options
+comp=$(topdesk completion zsh || true)
+if contains "$comp" '--dry-run' && contains "$comp" 'GET POST'; then ok $t "completion zsh call options"; else not_ok $t "completion zsh call options"; fi
 t=$((t+1))
 
 rm -rf "$CFG_DIR" "$CFG_EDIT_DIR"
