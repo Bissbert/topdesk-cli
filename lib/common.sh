@@ -63,3 +63,19 @@ query_add() {
     printf '%s&%s=%s' "$_qa_existing" "$_qa_key_enc" "$_qa_val_enc"
   fi
 }
+
+query_apply_params() {
+  _qap_base=${1-}
+  _qap_params=${2-}
+  [ -n "${_qap_params}" ] || { printf '%s' "${_qap_base}"; return; }
+  _qap_result=${_qap_base}
+  while IFS= read -r _qap_pair; do
+    [ -n "${_qap_pair}" ] || continue
+    _qap_key=${_qap_pair%%=*}
+    _qap_val=${_qap_pair#*=}
+    _qap_result=$(query_add "${_qap_result}" "${_qap_key}" "${_qap_val}")
+  done <<EOF
+${_qap_params}
+EOF
+  printf '%s' "${_qap_result}"
+}

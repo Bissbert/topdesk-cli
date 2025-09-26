@@ -31,6 +31,9 @@ Options:
   --insecure            Do not verify TLS (curl -k)
   --raw                 Print raw response (no pretty printing)
   --pretty              Pretty-print JSON via jq if available
+  --output FILE         Write response body to FILE (suppresses stdout)
+  --tee FILE            Write body to FILE and still emit to stdout
+  --dry-run             Print the constructed curl command and exit
 
 Environment/config:
   TDX_BASE_URL   Base URL, e.g. https://topdesk.example.com
@@ -42,15 +45,121 @@ Environment/config:
 EOF
 }
 
+shell_quote() {
+  case ${1-} in
+    "") printf "''" ;;
+    *[!A-Za-z0-9_./-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\''/g")" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+print_curl_command() {
+  printf 'curl'
+  for arg in "$@"; do
+    printf ' %s' "$(shell_quote "$arg")"
+  done
+  printf '\n'
+}
+
+build_curl_command() {
+  target=$1
+  headers_out=$2
+  shift 2 || true
+  CURL_CMD=""
+  append_arg() {
+    if [ -n "$CURL_CMD" ]; then
+      CURL_CMD="$CURL_CMD
+$1"
+    else
+      CURL_CMD="$1"
+    fi
+  }
+  append_arg -sS
+  append_arg --connect-timeout
+  append_arg "$TIMEOUT"
+  append_arg --max-time
+  append_arg "$TIMEOUT"
+  append_arg -X
+  append_arg "$METHOD"
+  [ "${INSECURE}" = 1 ] && append_arg -k
+  if [ "$RETRY" -gt 0 ] 2>/dev/null; then
+    append_arg --retry
+    append_arg "$RETRY"
+    append_arg --retry-all-errors
+    if [ "$RETRY_DELAY" -gt 0 ] 2>/dev/null; then
+      append_arg --retry-delay
+      append_arg "$RETRY_DELAY"
+    fi
+  fi
+  [ -n "$CACERT" ] && { append_arg --cacert; append_arg "$CACERT"; }
+  [ -n "$CAPATH" ] && { append_arg --capath; append_arg "$CAPATH"; }
+  append_arg -H
+  append_arg "Accept: $ACCEPT"
+  case "$METHOD" in
+    POST|PUT|PATCH)
+      append_arg -H
+      append_arg "Content-Type: $CONTENT"
+      ;;
+  esac
+  if [ -n "${TDX_AUTH_HEADER:-}" ]; then
+    append_arg -H
+    append_arg "$TDX_AUTH_HEADER"
+  elif [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+    append_arg -H
+    append_arg "Authorization: ${TDX_AUTH_TOKEN}"
+  elif [ -n "${TDX_USER:-}" ] || [ -n "${TDX_PASS:-}" ]; then
+    append_arg -u
+    append_arg "${TDX_USER:-}:${TDX_PASS:-}"
+  fi
+  if [ -n "$HEADERS" ]; then
+    while IFS= read -r h; do
+      [ -n "$h" ] || continue
+      append_arg -H
+      append_arg "$h"
+    done <<EOF
+$HEADERS
+EOF
+  fi
+  if [ -n "$DATA" ]; then
+    case "$DATA" in
+      @*) append_arg --data-binary; append_arg "$DATA" ;;
+      *) append_arg --data; append_arg "$DATA" ;;
+    esac
+  fi
+  append_arg --dump-header
+  append_arg "$headers_out"
+  append_arg -o
+  append_arg "$target"
+}
+
 [ "$#" -ge 1 ] || { usage >&2; exit 2; }
 case ${1:-} in -h|--help) usage; exit 0;; esac
 
-METHOD=$1; shift || true
-PATH_IN=${1:-}; [ -n "$PATH_IN" ] || { err "missing PATH"; usage >&2; exit 2; }; shift || true
-
 DATA=""; ACCEPT="application/json"; CONTENT="application/json"
 TIMEOUT=${TDX_TIMEOUT:-30}; INSECURE=0; RAW=0; PRETTY=0; QUERY=""; HEADERS=""; PARAMS=""
-RETRY=${TDX_RETRY:-0}; RETRY_DELAY=${TDX_RETRY_DELAY:-0}; CACERT=""; CAPATH=""
+RETRY=${TDX_RETRY:-0}; RETRY_DELAY=${TDX_RETRY_DELAY:-0}; CACERT=""; CAPATH=""; OUTPUT=""; TEE=""; DRY_RUN=0
+
+METHOD=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --dry-run) DRY_RUN=1; shift; continue ;;
+    --output) req_arg "$@"; OUTPUT=$2; shift 2; continue ;;
+    --tee) req_arg "$@"; TEE=$2; shift 2; continue ;;
+    --) shift; break ;;
+    -*) break ;;
+    *) METHOD=$1; shift; break ;;
+  esac
+done
+
+if [ -z "$METHOD" ]; then
+  [ "$#" -gt 0 ] || { err "missing METHOD"; usage >&2; exit 2; }
+  METHOD=$1; shift
+fi
+
+PATH_IN=${1:-}
+[ -n "$PATH_IN" ] || { err "missing PATH"; usage >&2; exit 2; }
+shift || true
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -62,23 +171,15 @@ while [ "$#" -gt 0 ]; do
     --query) req_arg "$@"; QUERY=$2; shift 2 ;;
     --param)
       req_arg "$@"
-      arg=$2
+      args_take_param "$2" "${3-}" --param
+      args_params_append PARAMS "$ARGS_PARAM_KEY" "$ARGS_PARAM_VAL"
       shift 2
-      case "$arg" in
-        *=*) key=${arg%%=*}; val=${arg#*=} ;;
-        *)
-          [ "$#" -gt 0 ] || { err "missing value for --param"; exit 2; }
-          key=$arg
-          val=$1
-          shift
-          ;;
-      esac
-      if [ -n "$PARAMS" ]; then
-        PARAMS="${PARAMS}
-${key}=${val}"
-      else
-        PARAMS="${key}=${val}"
-      fi
+      [ "$ARGS_PARAM_SHIFT" -eq 1 ] && shift
+      ;;
+    --param=*)
+      args_take_param "${1#--param=}" "" --param
+      args_params_append PARAMS "$ARGS_PARAM_KEY" "$ARGS_PARAM_VAL"
+      shift
       ;;
     --timeout) req_arg "$@"; TIMEOUT=$2; shift 2 ;;
     --insecure) INSECURE=1; shift ;;
@@ -86,6 +187,9 @@ ${key}=${val}"
     --retry-delay) req_arg "$@"; RETRY_DELAY=$2; shift 2 ;;
     --cacert) req_arg "$@"; CACERT=$2; shift 2 ;;
     --capath) req_arg "$@"; CAPATH=$2; shift 2 ;;
+    --output) req_arg "$@"; OUTPUT=$2; shift 2 ;;
+    --tee) req_arg "$@"; TEE=$2; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
     --raw) RAW=1; shift ;;
     --pretty) PRETTY=1; shift ;;
     --) shift; break ;;
@@ -95,6 +199,13 @@ ${key}=${val}"
 done
 
 [ -n "${TDX_BASE_URL:-}" ] || { err "TDX_BASE_URL not set"; exit 2; }
+
+if [ -n "$OUTPUT" ] && [ -n "$TEE" ]; then
+  err "--output cannot be combined with --tee"; exit 2
+fi
+if [ -n "$OUTPUT" ] && [ "$PRETTY" = 1 ]; then
+  err "--pretty cannot be used with --output; use --tee for stdout"; exit 2
+fi
 
 if [ -n "$PARAMS" ]; then
   while IFS= read -r pair; do
@@ -117,54 +228,63 @@ base=${TDX_BASE_URL%/}
 path=/$(printf '%s' "$PATH_IN" | sed 's/^\/*//')
 [ -n "$QUERY" ] && qs="?$QUERY" || qs=""
 url="$base$path$qs"
-
-set -- -sS --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" -X "$METHOD"
-[ "${INSECURE}" = 1 ] && set -- "$@" -k
-if [ "$RETRY" -gt 0 ] 2>/dev/null; then
-  set -- "$@" --retry "$RETRY" --retry-all-errors
-  [ "$RETRY_DELAY" -gt 0 ] 2>/dev/null && set -- "$@" --retry-delay "$RETRY_DELAY"
-fi
-[ -n "$CACERT" ] && set -- "$@" --cacert "$CACERT"
-[ -n "$CAPATH" ] && set -- "$@" --capath "$CAPATH"
-
-# Headers
-set -- "$@" -H "Accept: $ACCEPT"
-case "$METHOD" in POST|PUT|PATCH) set -- "$@" -H "Content-Type: $CONTENT" ;; esac
-
-# Auth (priority: explicit header, token, then basic auth)
-if [ -n "${TDX_AUTH_HEADER:-}" ]; then
-  set -- "$@" -H "$TDX_AUTH_HEADER"
-elif [ -n "${TDX_AUTH_TOKEN:-}" ]; then
-  set -- "$@" -H "Authorization: ${TDX_AUTH_TOKEN}"
-elif [ -n "${TDX_USER:-}" ] || [ -n "${TDX_PASS:-}" ]; then
-  set -- "$@" -u "${TDX_USER:-}:${TDX_PASS:-}"
+CAPTURE_BODY=1
+if [ -n "$OUTPUT" ] && [ -z "$TEE" ]; then
+  CAPTURE_BODY=0
 fi
 
-# Extra headers (one per line in HEADERS)
-if [ -n "$HEADERS" ]; then
-  old_ifs=$IFS; IFS='\n'
-  for h in $(printf '%s\n' "$HEADERS" | sed '/^$/d'); do
-    IFS=$old_ifs
-    set -- "$@" -H "$h"
-    old_ifs='\n'; IFS=$old_ifs
-  done
-  IFS=$old_ifs
+body_preview=$OUTPUT
+[ "$CAPTURE_BODY" -eq 1 ] && body_preview="${TMPDIR:-/tmp}/topdesk-call-body.preview"
+headers_preview=/dev/null
+
+build_curl_command "$body_preview" "$headers_preview"
+
+set --
+if [ -n "$CURL_CMD" ]; then
+  while IFS= read -r arg; do
+    set -- "$@" "$arg"
+  done <<EOF
+$CURL_CMD
+EOF
 fi
 
-# Body
-if [ -n "$DATA" ]; then
-  case "$DATA" in @*) set -- "$@" --data-binary "$DATA" ;; *) set -- "$@" --data "$DATA" ;; esac
+if [ "$DRY_RUN" -eq 1 ]; then
+  print_curl_command "$@" -- "$url"
+  exit 0
 fi
 
-tmp_body=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-body.XXXXXX") || exit 1
-tmp_headers=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-headers.XXXXXX") || { rm -f "$tmp_body"; exit 1; }
-cleanup() { rm -f "$tmp_body" "$tmp_headers"; }
+tmp_body=""
+if [ "$CAPTURE_BODY" -eq 1 ]; then
+  tmp_body=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-body.XXXXXX") || exit 1
+  body_target=$tmp_body
+else
+  body_target=$OUTPUT
+fi
+tmp_headers=$(mktemp "${TMPDIR:-/tmp}/topdesk-call-headers.XXXXXX") || { [ -n "$tmp_body" ] && rm -f "$tmp_body"; exit 1; }
+cleanup() {
+  if [ "$CAPTURE_BODY" -eq 1 ] && [ -n "$tmp_body" ]; then rm -f "$tmp_body"; fi
+  [ -n "$tmp_headers" ] && rm -f "$tmp_headers"
+}
 trap cleanup EXIT INT TERM HUP
 
+build_curl_command "$body_target" "$tmp_headers"
+
+set --
+if [ -n "$CURL_CMD" ]; then
+  while IFS= read -r arg; do
+    set -- "$@" "$arg"
+  done <<EOF
+$CURL_CMD
+EOF
+fi
+
 set +e
-http_code=$(curl "$@" --dump-header "$tmp_headers" -o "$tmp_body" -w '%{http_code}' -- "$url")
+http_code=$(curl "$@" -w '%{http_code}' -- "$url")
 curl_status=$?
 set -e
+
+BODY_PATH=$tmp_body
+[ "$CAPTURE_BODY" -eq 0 ] && BODY_PATH=$OUTPUT
 
 if [ "$curl_status" -ne 0 ]; then
   case "$curl_status" in
@@ -173,8 +293,8 @@ if [ "$curl_status" -ne 0 ]; then
     28) err "request timed out after %s seconds" "$TIMEOUT" ;;
     *) err "request failed with curl exit %s" "$curl_status" ;;
   esac
-  if [ -s "$tmp_body" ]; then
-    note "response: %s" "$(head -c 400 "$tmp_body" | tr '\r' ' ' )"
+  if [ -n "$BODY_PATH" ] && [ -f "$BODY_PATH" ] && [ -s "$BODY_PATH" ]; then
+    note "response: %s" "$(head -c 400 "$BODY_PATH" | tr '\r' ' ' )"
   fi
   exit 3
 fi
@@ -194,8 +314,8 @@ case "$http_code" in
     ;;
   *)
     err "HTTP %s %s" "$http_code" "$status_reason"
-    if [ -s "$tmp_body" ]; then
-      snippet=$(head -c 600 "$tmp_body" | tr '\r' ' ')
+    if [ -n "$BODY_PATH" ] && [ -f "$BODY_PATH" ] && [ -s "$BODY_PATH" ]; then
+      snippet=$(head -c 600 "$BODY_PATH" | tr '\r' ' ')
       note "response body: %s" "$snippet"
     fi
     case "$http_code" in
@@ -205,6 +325,14 @@ case "$http_code" in
     esac
     ;;
 esac
+
+if [ "$CAPTURE_BODY" -eq 0 ]; then
+  exit 0
+fi
+
+if [ -n "$TEE" ]; then
+  cat "$tmp_body" > "$TEE"
+fi
 
 if [ "$RAW" = 1 ]; then
   cat "$tmp_body"

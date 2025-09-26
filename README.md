@@ -68,7 +68,7 @@ Notes on authentication
 
 Commands (initial)
 
-- `topdesk call` — low-level HTTP caller to Topdesk API with headers/auth handling (reports HTTP errors with informative exit codes and accepts repeatable `--param KEY=VAL`). Notable flags: `--pretty`, `--raw`, `--retry`, `--insecure`, and TLS CA overrides.
+- `topdesk call` — low-level HTTP caller to Topdesk API with headers/auth handling (reports HTTP errors with informative exit codes and accepts repeatable `--param KEY=VAL`). Notable flags: `--pretty`, `--raw`, `--retry`, `--insecure`, TLS CA overrides, and workflow helpers like `--dry-run`, `--output FILE`, and `--tee FILE`.
 - `topdesk incidents` — list incidents; supports `--format {tsv|csv|json}`, `--headers`, repeatable `--param KEY=VAL`, the `--archived BOOL` filter, `--raw`, `--pretty`, `--all`, `--limit`, and custom pagination knobs.
   - Pagination: `--all`, `--limit N`, `--page-size`, `--page-param`, `--offset-param`.
 - `topdesk incidents-get` — get incident by `--id` or `--number`; combine with `--all` to return every match for a number instead of the first hit.

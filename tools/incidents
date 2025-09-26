@@ -4,6 +4,7 @@ set -eu
 
 _this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
 . "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+. "$_root/lib/jq.sh"; . "$_root/lib/paginate.sh"
 
 PAGE_SIZE_DEFAULT=${TDX_PAGE_SIZE:-100}
 PAGE_PARAM_DEFAULT=${TDX_PAGE_PARAM:-pageSize}
@@ -38,142 +39,74 @@ PAGE_SIZE=$PAGE_SIZE_DEFAULT
 ARCH=""; QS=""; PARAMS=""; RAW=0; PRETTY=0; FORMAT=json; HEADERS=0; FIELDS=$FIELDS_DEFAULT
 ALL=0; LIMIT=""; PAGE_PARAM=${TDX_PAGE_PARAM:-$PAGE_PARAM_DEFAULT}; OFFSET_PARAM=${TDX_OFFSET_PARAM:-$OFFSET_PARAM_DEFAULT}
 
-add_param() {
-  if [ -n "$PARAMS" ]; then
-    PARAMS="${PARAMS}
-${1}=${2}"
-  else
-    PARAMS="${1}=${2}"
-  fi
-}
-
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -h|--help) usage; exit 0 ;;
-    --page-size) req_arg "$@"; PAGE_SIZE=$2; shift 2 ;;
-    --archived) req_arg "$@"; ARCH=$2; shift 2 ;;
-    --query) req_arg "$@"; QS=$2; shift 2 ;;
+    -h|--help)
+      usage; exit 0 ;;
+    --page-size)
+      req_arg "$@"; PAGE_SIZE=$2; shift 2; continue ;;
+    --archived)
+      req_arg "$@"; ARCH=$2; shift 2; continue ;;
+    --query)
+      req_arg "$@"; QS=$2; shift 2; continue ;;
     --param)
-      req_arg "$@"
-      arg=$2
-      shift 2
-      case "$arg" in
-        *=*) key=${arg%%=*}; val=${arg#*=} ;;
-        *)
-          [ "$#" -gt 0 ] || { err "missing value for --param"; exit 2; }
-          key=$arg
-          val=$1
-          shift
-          ;;
-      esac
-      add_param "$key" "$val"
-      ;;
-    --all) ALL=1; shift ;;
-    --limit) req_arg "$@"; LIMIT=$2; shift 2 ;;
-    --page-param) req_arg "$@"; PAGE_PARAM=$2; shift 2 ;;
-    --offset-param) req_arg "$@"; OFFSET_PARAM=$2; shift 2 ;;
-    --format) req_arg "$@"; FORMAT=$2; shift 2 ;;
-    --headers) HEADERS=1; shift ;;
-    --fields) req_arg "$@"; FIELDS=$2; shift 2 ;;
-    --raw) RAW=1; shift ;;
-    --pretty) PRETTY=1; shift ;;
-    --) shift; break ;;
-    -*) err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
-    *) break ;;
+      req_arg "$@"; args_take_param "$2" "${3-}" --param; args_params_append PARAMS "$ARGS_PARAM_KEY" "$ARGS_PARAM_VAL"; shift $((2 + ARGS_PARAM_SHIFT)); continue ;;
+    --param=*)
+      args_take_param "${1#--param=}" "" --param; args_params_append PARAMS "$ARGS_PARAM_KEY" "$ARGS_PARAM_VAL"; shift; continue ;;
+    --all)
+      ALL=1; shift; continue ;;
+    --limit)
+      req_arg "$@"; LIMIT=$2; shift 2; continue ;;
+    --page-param)
+      req_arg "$@"; PAGE_PARAM=$2; shift 2; continue ;;
+    --offset-param)
+      req_arg "$@"; OFFSET_PARAM=$2; shift 2; continue ;;
+    --format)
+      req_arg "$@"; FORMAT=$2; shift 2; continue ;;
+    --headers)
+      HEADERS=1; shift; continue ;;
+    --fields)
+      req_arg "$@"; FIELDS=$2; shift 2; continue ;;
+    --raw)
+      RAW=1; shift; continue ;;
+    --pretty)
+      PRETTY=1; shift; continue ;;
+    --)
+      shift; break ;;
+    -*)
+      err "unknown option: %s" "$1"; usage >&2; exit 2 ;;
+    *)
+      break ;;
   esac
 done
 
-base_qs="$QS"
-if [ -n "$PARAMS" ]; then
-  while IFS= read -r pair; do
-    [ -n "$pair" ] || continue
-    key=${pair%%=*}
-    val=${pair#*=}
-    base_qs=$(query_add "$base_qs" "$key" "$val")
-  done <<EOF
-$PARAMS
-EOF
-fi
+CALL_BIN="$_root/tools/call"
+PATH_INC="/tas/api/incidents"
 
-q=$(query_add "$base_qs" "$PAGE_PARAM" "$PAGE_SIZE")
-[ -n "$ARCH" ] && q=$(query_add "$q" "archived" "$ARCH")
+qs=$(query_apply_params "$QS" "$PARAMS")
+[ -n "$ARCH" ] && qs=$(query_add "$qs" "archived" "$ARCH")
 
 if [ "$ALL" = 1 ] || [ -n "$LIMIT" ]; then
-  # Paginated fetch
-  total=0; start=${TDX_OFFSET_START:-0}; printed_header=0
   if [ "$FORMAT" = json ]; then
-    command_exists jq || { err "jq is required for paginated json output"; exit 2; }
-    (
-      while :; do
-        qpage=$(query_add "$q" "$OFFSET_PARAM" "$start")
-        res=$("$_root/tools/call" GET "/tas/api/incidents" --query "$qpage" --raw)
-        count=$(printf '%s' "$res" | jq 'length' 2>/dev/null || echo 0)
-        [ "$count" -eq 0 ] && break
-        if [ -n "$LIMIT" ]; then
-          remain=$(( LIMIT - total ))
-          if [ "$remain" -le 0 ]; then break; fi
-          if [ "$remain" -lt "$count" ]; then
-            printf '%s' "$res" | jq -c --argjson limit "$remain" '.[:$limit][]'
-            total=$(( total + remain ))
-            break
-          fi
-        fi
-        printf '%s' "$res" | jq -c '.[]'
-        total=$(( total + count ))
-        [ "$count" -lt "$PAGE_SIZE" ] && break
-        if [ -n "$LIMIT" ] && [ "$total" -ge "$LIMIT" ]; then break; fi
-        start=$(( start + PAGE_SIZE ))
-      done
-    ) | jq -s '.'
+    paginate_json "$CALL_BIN" "$PATH_INC" "$qs" "$PAGE_PARAM" "$OFFSET_PARAM" "$PAGE_SIZE" "$LIMIT"
   else
-    while :; do
-      qpage=$(query_add "$q" "$OFFSET_PARAM" "$start")
-      command_exists jq || { err "jq is required for --format %s" "$FORMAT"; exit 2; }
-      # printer
-      printer='@tsv'; [ "$FORMAT" = csv ] && printer='@csv'
-      # jq fields
-      JQ_FIELDS=""; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ -n "$ff" ] || continue; [ -z "$JQ_FIELDS" ] && JQ_FIELDS="(.${ff}? // \"\")" || JQ_FIELDS="$JQ_FIELDS, (.${ff}? // \"\")"; OLDIFS=','; IFS=','; done; IFS=$OLDIFS
-      JQ_ROW="[$JQ_FIELDS]"
-      if [ "$printed_header" = 0 ] && [ "$HEADERS" = 1 ]; then
-        hdr_json=$(printf '['; i=0; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ $i -gt 0 ] && printf ','; printf '"%s"' "$ff"; i=$((i+1)); OLDIFS=','; IFS=','; done; IFS=$OLDIFS; printf ']')
-        printf '%s\n' "$hdr_json" | jq -r "$printer"
-        printed_header=1
-      fi
-      page_json=$("$_root/tools/call" GET "/tas/api/incidents" --query "$qpage" --raw)
-      count=$(printf '%s' "$page_json" | jq 'length')
-      if [ -n "$LIMIT" ]; then
-        remain=$(( LIMIT - total ))
-        if [ "$remain" -le 0 ]; then break; fi
-        if [ "$remain" -lt "$count" ]; then
-          jq_prog='.[:$limit] | .[] | '"$JQ_ROW"' | '"$printer"
-          printf '%s' "$page_json" | jq -r --argjson limit "$remain" "$jq_prog"
-          total=$(( total + remain ))
-          break
-        fi
-      fi
-      jq_prog='.[] | '"$JQ_ROW"' | '"$printer"
-      printf '%s' "$page_json" | jq -r "$jq_prog"
-      total=$(( total + count ))
-      [ "$count" -lt "$PAGE_SIZE" ] && break
-      if [ -n "$LIMIT" ] && [ "$total" -ge "$LIMIT" ]; then break; fi
-      start=$(( start + PAGE_SIZE ))
-    done
+    paginate_tabular "$CALL_BIN" "$PATH_INC" "$qs" "$FIELDS" "$FORMAT" "$HEADERS" "$PAGE_PARAM" "$OFFSET_PARAM" "$PAGE_SIZE" "$LIMIT"
   fi
   exit 0
 fi
 
-# Single page
+page_qs=$(query_add "$qs" "$PAGE_PARAM" "$PAGE_SIZE")
+
 if [ "$FORMAT" = json ]; then
-  "$_root/tools/call" GET "/tas/api/incidents" --query "$q" ${RAW:+--raw} ${PRETTY:+--pretty}
+  "$CALL_BIN" GET "$PATH_INC" --query "$page_qs" ${RAW:+--raw} ${PRETTY:+--pretty}
   exit $?
 fi
 
-command_exists jq || { err "jq is required for --format %s" "$FORMAT"; exit 2; }
+jq_require "--format $FORMAT"
 printer='@tsv'; [ "$FORMAT" = csv ] && printer='@csv'
-JQ_FIELDS=""; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ -n "$ff" ] || continue; [ -z "$JQ_FIELDS" ] && JQ_FIELDS="(.${ff}? // \"\")" || JQ_FIELDS="$JQ_FIELDS, (.${ff}? // \"\")"; OLDIFS=','; IFS=','; done; IFS=$OLDIFS
-JQ_PROG="(.[] | [$JQ_FIELDS] | $printer)"
+jq_fields=$(jq_field_extractor "$FIELDS")
 if [ "$HEADERS" = 1 ]; then
-  hdr_json=$(printf '['; i=0; OLDIFS=$IFS; IFS=','; for f in $FIELDS; do IFS=$OLDIFS; ff=$(printf '%s' "$f" | sed 's/^ *//; s/ *$//'); [ $i -gt 0 ] && printf ','; printf '"%s"' "$ff"; i=$((i+1)); OLDIFS=','; IFS=','; done; IFS=$OLDIFS; printf ']')
-  printf '%s\n' "$hdr_json" | jq -r "$printer"
+  jq_header=$(jq_header_array "$FIELDS")
+  printf '%s\n' "$jq_header" | jq -r "$printer"
 fi
-"$_root/tools/call" GET "/tas/api/incidents" --query "$q" --raw | jq -r "$JQ_PROG"
+"$CALL_BIN" GET "$PATH_INC" --query "$page_qs" --raw | jq -r ".[] | [$jq_fields] | $printer"

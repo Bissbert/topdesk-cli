@@ -3,7 +3,7 @@
 set -eu
 
 _this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
-. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"; . "$_root/lib/json.sh"
 
 usage() {
   cat <<EOF
@@ -19,19 +19,6 @@ Options:
   --raw              Raw response
   --pretty           Pretty print JSON
 EOF
-}
-
-json_escape_stream() {
-  awk 'BEGIN { ORS=""; printf "\"" }
-       {
-         gsub(/\\/, "\\\\");
-         gsub(/"/, "\\\"");
-         gsub(/\r/, "\\r");
-         gsub(/\t/, "\\t");
-         if (NR > 1) { printf "\\n"; }
-         printf "%s", $0
-       }
-       END { printf "\"" }'
 }
 
 ID=""; TEXT=""; FILE=""; PATH_OVERRIDE=""; RAW=0; PRETTY=0
