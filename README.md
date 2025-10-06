@@ -8,16 +8,23 @@ Overview
 
 Quick Start
 
-- List commands: `bin/topdesk help`
-- Show version: `bin/topdesk --version`
-- Call API directly: `bin/topdesk call GET /tas/api/incidents` (configure auth first)
+1. First-time setup: `topdesk config init` (create configuration)
+2. Verify setup: `topdesk doctor` (check everything is working)
+3. Test connection: `topdesk ping` (verify API connectivity)
+4. List commands: `topdesk help` (show available commands)
+5. Start using: `topdesk incidents --limit 5` (list recent incidents)
 
 Install
 
-- This toolkit is self-contained (vendored libs from `toolbox.sh`).
-- Optional: add `bin` to your `PATH`:
-  - `export PATH="$PWD/topdesk-toolkit/bin:$PATH"`
-- External helpers: `jq` is required for `--format csv|tsv`, `--pretty`, and merging paginated `--all` output.
+Using Makefile (recommended):
+- User install: `make install-user` (installs to ~/.local)
+- System install: `sudo make install PREFIX=/usr/local`
+- Development: `make install-dev` (symlinks for development)
+- Uninstall: `make uninstall-user` or `make uninstall`
+
+Dependencies:
+- Required: `curl` (for API calls)
+- Optional: `jq` (for JSON formatting and CSV/TSV output)
 
 Configuration
 

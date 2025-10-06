@@ -40,11 +40,31 @@ Global options:
   --log-level LVL    Set log level (debug,info,warn,error)
   --config FILE      Use specific config file
 
-Commands:
-$(list_commands | sed 's/^/  /')
+System Commands:
+  config             Manage configuration files
+  ping               Test API connectivity and authentication
+  doctor             Run comprehensive health checks
+  completion         Generate shell completions
+  help               Show help for commands
 
-  Help:
-  ${TOOLBOX_NAME} help [command]
+API Commands:
+  call               Low-level HTTP API caller
+
+Incident Management:
+  incidents                  List incidents
+  incidents-get              Get incident by ID/number
+  incidents-create           Create new incident
+  incidents-update           Update existing incident
+  incidents-add-note         Add note to incident
+  incidents-attachments-*    Manage incident attachments
+
+Resource Management:
+  persons, persons-*         Manage persons
+  operators, operators-*     Manage operators
+  assets, assets-*          Manage assets
+
+Run '${TOOLBOX_NAME} help <command>' for detailed command help
+Run '${TOOLBOX_NAME} doctor' to verify your setup
 EOF
 }
 
