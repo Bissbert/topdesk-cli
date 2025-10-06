@@ -94,14 +94,23 @@ Commands (initial)
 - `topdesk assets-search` — list assets using an arbitrary query string (or repeatable `--param KEY=VAL`).
 - `topdesk assets-create` — create an asset from JSON payload (`--path` override available).
 - `topdesk assets-update` — update an asset by id via PATCH (default) or PUT.
-- `topdesk config` — manage config files (`list`, `path`, `init`, `edit`).
+- `topdesk ping` — test connectivity and authentication to Topdesk API. Supports `--verbose`, `--quiet`, `--timeout SEC`, and `--endpoint PATH` for custom endpoints.
+- `topdesk doctor` — comprehensive health check and diagnostics. Checks dependencies, configuration, authentication, network connectivity, and permissions. Supports `--verbose`, `--quiet`, and `--fix` to attempt automatic fixes.
+- `topdesk config` — manage config files (`list`, `path`, `init`, `edit`, `validate`).
 - `topdesk completion` — shell completion (bash/zsh) inherited from framework.
 
 Examples
 
-- `topdesk config list`
-- `topdesk config init`
-- `EDITOR="code --wait" topdesk config edit`
+Configuration and health checks:
+- `topdesk config init` — create a configuration template
+- `topdesk config list` — show current configuration (with sensitive values redacted)
+- `EDITOR="code --wait" topdesk config edit` — edit configuration in VS Code
+- `topdesk ping` — quick connectivity test
+- `topdesk ping -v` — verbose connectivity test with details
+- `topdesk doctor` — comprehensive health check
+- `topdesk doctor --fix` — health check with automatic fixes
+
+API operations:
 - `topdesk call GET /tas/api/incidents --param pageSize 50 --param archived false --pretty`
 - `topdesk incidents --page-size 200 --format tsv --headers`
 - `topdesk incidents --all --format csv --headers`
