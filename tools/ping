@@ -1,0 +1,233 @@
+#!/bin/sh
+# Test connectivity to Topdesk API
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} ping [options]
+
+Test connectivity and authentication to Topdesk API.
+
+Options:
+  -h, --help       Show this help
+  -v, --verbose    Show detailed output
+  -q, --quiet      Suppress all output except errors
+  --timeout SEC    Connection timeout (default: 5)
+  --endpoint PATH  API endpoint to test (default: /tas/api/incidents)
+
+Exit codes:
+  0  Success - API is reachable and authentication works
+  1  Connection failed - Cannot reach the API
+  2  Authentication failed - API reachable but credentials invalid
+  3  Configuration error - Missing required settings
+
+Configuration:
+  Requires TDX_BASE_URL and authentication (TDX_AUTH_TOKEN, TDX_AUTH_HEADER, or TDX_USER/TDX_PASS)
+EOF
+}
+
+# Default values
+VERBOSE=0
+QUIET=0
+TIMEOUT=5
+TEST_ENDPOINT="/tas/api/incidents"
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -q|--quiet)
+      QUIET=1
+      shift
+      ;;
+    --timeout)
+      req_arg "$@"
+      TIMEOUT=$2
+      shift 2
+      ;;
+    --endpoint)
+      req_arg "$@"
+      TEST_ENDPOINT=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      err "unknown option: %s" "$1"
+      usage >&2
+      exit 2
+      ;;
+    *)
+      err "unexpected argument: %s" "$1"
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+# Helper functions
+verbose() {
+  [ $VERBOSE -eq 1 ] && printf '%s\n' "$*" >&2
+}
+
+output() {
+  [ $QUIET -eq 0 ] && printf '%s\n' "$*"
+}
+
+# Load configuration (this will set defaults and load from file/env)
+load_config "" 2>/dev/null || true
+
+# Check configuration
+verbose "Checking configuration..."
+if [ -z "${TDX_BASE_URL:-}" ]; then
+  err "TDX_BASE_URL is not configured"
+  err "Run '${TOOLBOX_NAME} config init' to create a configuration"
+  exit 3
+fi
+
+# Check authentication
+if [ -z "${TDX_AUTH_TOKEN:-}" ] && \
+   [ -z "${TDX_AUTH_HEADER:-}" ] && \
+   [ -z "${TDX_USER:-}" ]; then
+  err "No authentication method configured"
+  err "Set TDX_AUTH_TOKEN, TDX_AUTH_HEADER, or TDX_USER/TDX_PASS"
+  exit 3
+fi
+
+verbose "Base URL: $TDX_BASE_URL"
+verbose "Test endpoint: $TEST_ENDPOINT"
+verbose "Timeout: ${TIMEOUT}s"
+
+# Build the test URL
+TEST_URL="${TDX_BASE_URL%/}${TEST_ENDPOINT}"
+
+# Add minimal query parameter to reduce response size
+if echo "$TEST_ENDPOINT" | grep -q '?'; then
+  TEST_URL="${TEST_URL}&pageSize=1"
+else
+  TEST_URL="${TEST_URL}?pageSize=1"
+fi
+
+verbose "Full test URL: $TEST_URL"
+
+# Check TLS verification
+if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+  verbose "TLS verification disabled"
+fi
+
+# Measure response time
+START_TIME=$(date +%s 2>/dev/null || date +%S)
+
+# Make the request
+verbose "Testing connection..."
+
+# Execute curl based on auth method
+if [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  verbose "Using token authentication"
+  if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -H "Authorization: $TDX_AUTH_TOKEN" -k \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  else
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -H "Authorization: $TDX_AUTH_TOKEN" \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  fi
+elif [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  verbose "Using custom header authentication"
+  if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -H "$TDX_AUTH_HEADER" -k \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  else
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -H "$TDX_AUTH_HEADER" \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  fi
+elif [ -n "${TDX_USER:-}" ]; then
+  verbose "Using basic authentication"
+  if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -u "${TDX_USER}:${TDX_PASS:-}" -k \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  else
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -u "${TDX_USER}:${TDX_PASS:-}" \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  fi
+else
+  verbose "No authentication configured"
+  if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      -k "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  else
+    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+      "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
+  fi
+fi
+
+# Calculate elapsed time
+END_TIME=$(date +%s 2>/dev/null || date +%S)
+ELAPSED=$((END_TIME - START_TIME))
+
+# Parse response
+if [ "$RESPONSE" = "FAILED" ]; then
+  err "Connection failed: Cannot reach $TDX_BASE_URL"
+  output "Status: UNREACHABLE"
+  exit 1
+fi
+
+# Extract HTTP status code (last line)
+HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+verbose "HTTP Status: $HTTP_CODE"
+[ $VERBOSE -eq 1 ] && [ -n "$BODY" ] && echo "Response body preview:" >&2 && echo "$BODY" | head -5 >&2
+
+# Interpret results
+case "$HTTP_CODE" in
+  200|201|204)
+    output "Status: OK"
+    output "Response: ${ELAPSED}s"
+    output "HTTP: $HTTP_CODE"
+    output "API: ${TDX_BASE_URL%/}"
+    [ $VERBOSE -eq 1 ] && output "Endpoint: $TEST_ENDPOINT"
+    exit 0
+    ;;
+  401|403)
+    err "Authentication failed (HTTP $HTTP_CODE)"
+    output "Status: AUTH_FAILED"
+    exit 2
+    ;;
+  404)
+    # 404 might mean the endpoint doesn't exist, but API is reachable
+    warn "Endpoint not found (HTTP 404), but API is reachable"
+    output "Status: OK (endpoint not found)"
+    output "Response: ${ELAPSED}s"
+    output "API: ${TDX_BASE_URL%/}"
+    exit 0
+    ;;
+  500|502|503|504)
+    err "Server error (HTTP $HTTP_CODE)"
+    output "Status: SERVER_ERROR"
+    exit 1
+    ;;
+  *)
+    err "Unexpected response (HTTP $HTTP_CODE)"
+    output "Status: UNKNOWN"
+    [ $VERBOSE -eq 1 ] && [ -n "$BODY" ] && echo "$BODY" | head -10 >&2
+    exit 1
+    ;;
+esac
