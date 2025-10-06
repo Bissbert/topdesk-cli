@@ -86,8 +86,46 @@ output() {
   [ $QUIET -eq 0 ] && printf '%s\n' "$*"
 }
 
+# Mask sensitive data in strings
+mask_auth() {
+  _ma_input="$1"
+  _ma_type="${2:-token}"
+
+  case "$_ma_type" in
+    token)
+      # Mask bearer tokens, keeping first few chars for identification
+      echo "$_ma_input" | sed -E 's/(Bearer |Token |Basic )([A-Za-z0-9+\/=_-]{4})[A-Za-z0-9+\/=._-]+/\1\2<redacted>/g'
+      ;;
+    password)
+      # Mask password in user:pass format
+      echo "$_ma_input" | sed -E 's/([^:]+):.+/\1:<redacted>/'
+      ;;
+    header)
+      # Mask auth headers
+      echo "$_ma_input" | sed -E 's/(Authorization: )(Bearer |Token |Basic )([A-Za-z0-9+\/=_-]{4})[A-Za-z0-9+\/=._-]+/\1\2\3<redacted>/g'
+      ;;
+    *)
+      echo "$_ma_input"
+      ;;
+  esac
+}
+
+# Show system and curl info
+show_system_info() {
+  if [ $VERBOSE -eq 1 ]; then
+    verbose "System information:"
+    CURL_VERSION=$(curl --version | head -1 | awk '{print $2}')
+    verbose "  curl version: $CURL_VERSION"
+    verbose "  OS: $(uname -s) $(uname -r)"
+    verbose ""
+  fi
+}
+
 # Load configuration (this will set defaults and load from file/env)
 load_config "" 2>/dev/null || true
+
+# Show system info if verbose
+show_system_info
 
 # Check configuration
 verbose "Checking configuration..."
@@ -106,9 +144,12 @@ if [ -z "${TDX_AUTH_TOKEN:-}" ] && \
   exit 3
 fi
 
-verbose "Base URL: $TDX_BASE_URL"
-verbose "Test endpoint: $TEST_ENDPOINT"
-verbose "Timeout: ${TIMEOUT}s"
+verbose "Configuration:"
+verbose "  Base URL: $TDX_BASE_URL"
+verbose "  Test endpoint: $TEST_ENDPOINT"
+verbose "  Timeout: ${TIMEOUT}s"
+verbose "  TLS verification: $([ "${TDX_VERIFY_TLS:-1}" = "1" ] && echo "enabled" || echo "disabled")"
+verbose ""
 
 # Build the test URL
 TEST_URL="${TDX_BASE_URL%/}${TEST_ENDPOINT}"
@@ -120,63 +161,109 @@ else
   TEST_URL="${TEST_URL}?pageSize=1"
 fi
 
-verbose "Full test URL: $TEST_URL"
+verbose "Building request:"
+verbose "  Method: GET"
+verbose "  URL: $TEST_URL"
 
-# Check TLS verification
-if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
-  verbose "TLS verification disabled"
+# Show authentication details
+if [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  MASKED_TOKEN=$(mask_auth "$TDX_AUTH_TOKEN" "token")
+  verbose "  Authorization: $MASKED_TOKEN"
+elif [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  MASKED_HEADER=$(mask_auth "$TDX_AUTH_HEADER" "header")
+  verbose "  Custom header: $MASKED_HEADER"
+elif [ -n "${TDX_USER:-}" ]; then
+  MASKED_CREDS=$(mask_auth "${TDX_USER}:${TDX_PASS:-}" "password")
+  verbose "  Basic auth: $MASKED_CREDS"
 fi
+
+verbose ""
 
 # Measure response time
 START_TIME=$(date +%s 2>/dev/null || date +%S)
 
-# Make the request
-verbose "Testing connection..."
+# Build and show curl command for debugging
+verbose "Executing curl command:"
 
 # Execute curl based on auth method
+# Build curl command string for verbose display
+CURL_BASE="curl -s -i -w '\\n==STATUS==%{http_code}\\n==TIME==%{time_total}' --connect-timeout $TIMEOUT --max-time $TIMEOUT"
+
 if [ -n "${TDX_AUTH_TOKEN:-}" ]; then
-  verbose "Using token authentication"
+  MASKED_TOKEN=$(mask_auth "$TDX_AUTH_TOKEN" "token")
+  if [ $VERBOSE -eq 1 ]; then
+    verbose "  $CURL_BASE \\"
+    verbose "    -H \"Authorization: $MASKED_TOKEN\" \\"
+    [ "${TDX_VERIFY_TLS:-1}" = "0" ] && verbose "    -k \\"
+    verbose "    \"$TEST_URL\""
+    verbose ""
+  fi
+
   if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -H "Authorization: $TDX_AUTH_TOKEN" -k \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   else
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -H "Authorization: $TDX_AUTH_TOKEN" \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   fi
 elif [ -n "${TDX_AUTH_HEADER:-}" ]; then
-  verbose "Using custom header authentication"
+  MASKED_HEADER=$(mask_auth "$TDX_AUTH_HEADER" "header")
+  if [ $VERBOSE -eq 1 ]; then
+    verbose "  $CURL_BASE \\"
+    verbose "    -H \"$MASKED_HEADER\" \\"
+    [ "${TDX_VERIFY_TLS:-1}" = "0" ] && verbose "    -k \\"
+    verbose "    \"$TEST_URL\""
+    verbose ""
+  fi
+
   if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -H "$TDX_AUTH_HEADER" -k \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   else
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -H "$TDX_AUTH_HEADER" \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   fi
 elif [ -n "${TDX_USER:-}" ]; then
-  verbose "Using basic authentication"
+  MASKED_CREDS=$(mask_auth "${TDX_USER}:${TDX_PASS:-}" "password")
+  if [ $VERBOSE -eq 1 ]; then
+    verbose "  $CURL_BASE \\"
+    verbose "    -u \"$MASKED_CREDS\" \\"
+    [ "${TDX_VERIFY_TLS:-1}" = "0" ] && verbose "    -k \\"
+    verbose "    \"$TEST_URL\""
+    verbose ""
+  fi
+
   if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -u "${TDX_USER}:${TDX_PASS:-}" -k \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   else
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -u "${TDX_USER}:${TDX_PASS:-}" \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   fi
 else
-  verbose "No authentication configured"
+  if [ $VERBOSE -eq 1 ]; then
+    verbose "  $CURL_BASE \\"
+    [ "${TDX_VERIFY_TLS:-1}" = "0" ] && verbose "    -k \\"
+    verbose "    \"$TEST_URL\""
+    verbose ""
+  fi
+
   if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       -k "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   else
-    RESPONSE=$(curl -s -w '\n%{http_code}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
+    RESPONSE=$(curl -s -i -w '\n==STATUS==%{http_code}\n==TIME==%{time_total}' --connect-timeout "$TIMEOUT" --max-time "$TIMEOUT" \
       "$TEST_URL" 2>/dev/null) || RESPONSE="FAILED"
   fi
 fi
+
+verbose "Testing connection..."
 
 # Calculate elapsed time
 END_TIME=$(date +%s 2>/dev/null || date +%S)
@@ -189,18 +276,44 @@ if [ "$RESPONSE" = "FAILED" ]; then
   exit 1
 fi
 
-# Extract HTTP status code (last line)
-HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-BODY=$(echo "$RESPONSE" | sed '$d')
+# Extract parts from response
+# Response format: headers + body + ==STATUS==code + ==TIME==time
+HTTP_CODE=$(echo "$RESPONSE" | grep "^==STATUS==" | sed 's/==STATUS==//')
+RESPONSE_TIME=$(echo "$RESPONSE" | grep "^==TIME==" | sed 's/==TIME==//')
 
-verbose "HTTP Status: $HTTP_CODE"
-[ $VERBOSE -eq 1 ] && [ -n "$BODY" ] && echo "Response body preview:" >&2 && echo "$BODY" | head -5 >&2
+# Extract headers and body
+HEADERS=$(echo "$RESPONSE" | sed -n '1,/^$/p' | head -20)
+BODY=$(echo "$RESPONSE" | sed -n '/^$/,/^==STATUS==/p' | sed '1d;$d')
+
+# Display response information in verbose mode
+if [ $VERBOSE -eq 1 ]; then
+  verbose ""
+  verbose "Response received:"
+  verbose "  HTTP Status: $HTTP_CODE"
+  verbose "  Response time: ${RESPONSE_TIME}s"
+  verbose ""
+
+  if [ -n "$HEADERS" ]; then
+    verbose "Response headers:"
+    echo "$HEADERS" | while IFS= read -r line; do
+      [ -n "$line" ] && verbose "  $line"
+    done | head -15
+    verbose ""
+  fi
+
+  if [ -n "$BODY" ]; then
+    verbose "Response body preview:"
+    echo "$BODY" | head -5 | while IFS= read -r line; do
+      verbose "  $line"
+    done
+  fi
+fi
 
 # Interpret results
 case "$HTTP_CODE" in
   200|201|204)
     output "Status: OK"
-    output "Response: ${ELAPSED}s"
+    output "Response: ${RESPONSE_TIME:-$ELAPSED}s"
     output "HTTP: $HTTP_CODE"
     output "API: ${TDX_BASE_URL%/}"
     [ $VERBOSE -eq 1 ] && output "Endpoint: $TEST_ENDPOINT"
@@ -209,25 +322,45 @@ case "$HTTP_CODE" in
   401|403)
     err "Authentication failed (HTTP $HTTP_CODE)"
     output "Status: AUTH_FAILED"
+    if [ $VERBOSE -eq 1 ] && [ -n "$BODY" ]; then
+      verbose ""
+      verbose "Error details:"
+      echo "$BODY" | head -10 | while IFS= read -r line; do
+        verbose "  $line"
+      done
+    fi
     exit 2
     ;;
   404)
     # 404 might mean the endpoint doesn't exist, but API is reachable
     warn "Endpoint not found (HTTP 404), but API is reachable"
     output "Status: OK (endpoint not found)"
-    output "Response: ${ELAPSED}s"
+    output "Response: ${RESPONSE_TIME:-$ELAPSED}s"
     output "API: ${TDX_BASE_URL%/}"
     exit 0
     ;;
   500|502|503|504)
     err "Server error (HTTP $HTTP_CODE)"
     output "Status: SERVER_ERROR"
+    if [ $VERBOSE -eq 1 ] && [ -n "$BODY" ]; then
+      verbose ""
+      verbose "Server error details:"
+      echo "$BODY" | head -10 | while IFS= read -r line; do
+        verbose "  $line"
+      done
+    fi
     exit 1
     ;;
   *)
     err "Unexpected response (HTTP $HTTP_CODE)"
     output "Status: UNKNOWN"
-    [ $VERBOSE -eq 1 ] && [ -n "$BODY" ] && echo "$BODY" | head -10 >&2
+    if [ $VERBOSE -eq 1 ] && [ -n "$BODY" ]; then
+      verbose ""
+      verbose "Response details:"
+      echo "$BODY" | head -10 | while IFS= read -r line; do
+        verbose "  $line"
+      done
+    fi
     exit 1
     ;;
 esac
