@@ -1,0 +1,36 @@
+# Topdesk CLI Configuration Example
+# Copy this file to ~/.config/topdesk/config and customize
+
+# Required: Base URL for your Topdesk instance
+TDX_BASE_URL="https://topdesk.example.com"
+
+# Authentication (choose one method):
+
+# Option 1: Token authentication (recommended)
+# Full Authorization header value including "Bearer" prefix
+#TDX_AUTH_TOKEN="Bearer eyJ..."
+
+# Option 2: Custom authentication header
+#TDX_AUTH_HEADER="Authorization: Bearer <token>"
+
+# Option 3: Basic authentication (username/password)
+#TDX_USER="apiuser"
+#TDX_PASS="apipass"
+
+# TLS and network settings
+TDX_VERIFY_TLS=1         # Set to 0 to skip TLS verification (insecure)
+TDX_TIMEOUT=30           # Request timeout in seconds
+TDX_RETRY=0              # Number of retries for failed requests
+TDX_RETRY_DELAY=0        # Delay between retries in seconds
+
+# Pagination defaults (adjust if your instance uses different parameters)
+TDX_PAGE_SIZE=100        # Default items per page
+TDX_PAGE_PARAM=pageSize  # Query parameter for page size
+TDX_OFFSET_PARAM=start   # Query parameter for offset
+TDX_OFFSET_START=0       # Starting offset value
+
+# Optional: Default fields for list outputs
+#TDX_DEFAULT_FIELDS=number,id,briefDescription
+#TDX_PERSON_FIELDS=id,networkLoginName,firstName,lastName
+#TDX_OPERATOR_FIELDS=id,name,networkLoginName
+#TDX_ASSET_FIELDS=id,objectNumber,name

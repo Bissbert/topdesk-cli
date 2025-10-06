@@ -2,9 +2,9 @@
 completions/
 .tmp-tests/
 
-# Local config (if ever created in-tree)
-config
-config.sh
+# Local config (if ever created in-tree, but not lib/config.sh or tools/config)
+/config
+/config.sh
 
 # Editor/OS junk
 .DS_Store

@@ -44,8 +44,11 @@ _log() {
 }
 
 dbg() { _log debug "$@"; }
+debug() { _log debug "$@"; }
 inf() { _log info  "$@"; }
+info() { _log info  "$@"; }
 wrn() { _log warn  "$@"; }
+warn() { _log warn  "$@"; }
 err() { _log error "$@"; }
 note() { printf '%s\n' "$(printf "$@")" >&2; }
 

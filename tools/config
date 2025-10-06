@@ -1,0 +1,185 @@
+#!/bin/sh
+# Configuration management for Topdesk toolkit
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} config <subcommand> [options]
+
+Manage Topdesk toolkit configuration
+
+Subcommands:
+  list      Show current configuration (with sensitive values redacted)
+  init      Initialize a new configuration file with template
+  edit      Open configuration in editor
+  validate  Check configuration validity
+  path      Show path to active configuration file
+
+Options:
+  -h, --help     Show this help
+
+Environment:
+  EDITOR         Editor to use for 'config edit' (default: vi)
+  TOPDESK_CONFIG Path to config file (overrides default search)
+
+Configuration search order:
+  1. --config flag (from main command)
+  2. TOPDESK_CONFIG environment variable
+  3. ~/.config/topdesk/config
+  4. /etc/topdesk/config
+EOF
+}
+
+# Show configuration path
+show_config_path() {
+  _scp_file=$(find_config_file "") 2>/dev/null || true
+  if [ -n "$_scp_file" ]; then
+    printf '%s\n' "$_scp_file"
+  else
+    printf 'No configuration file found\n' >&2
+    printf 'Run "%s config init" to create one\n' "$TOOLBOX_NAME" >&2
+    return 1
+  fi
+}
+
+# Edit configuration
+edit_config() {
+  _ec_editor=${EDITOR:-vi}
+  _ec_file=$(find_config_file "") 2>/dev/null || true
+
+  # If no config exists, create template first
+  if [ -z "$_ec_file" ] || [ ! -f "$_ec_file" ]; then
+    info "No configuration file found, creating template..."
+    create_config_template || return 1
+    _ec_file="$DEFAULT_USER_CONFIG"
+  fi
+
+  # Check if editor exists
+  if ! command_exists "$_ec_editor"; then
+    err "editor not found: %s" "$_ec_editor"
+    err "set EDITOR environment variable to a valid editor"
+    return 1
+  fi
+
+  # Edit the file
+  info "opening config in editor: %s" "$_ec_editor"
+  "$_ec_editor" "$_ec_file"
+}
+
+# Validate configuration
+validate_configuration() {
+  # Load config
+  load_config "" >/dev/null 2>&1 || true
+
+  _vc_errors=0
+  _vc_warnings=0
+
+  # Check base URL
+  if [ -z "${TDX_BASE_URL:-}" ]; then
+    err "TDX_BASE_URL is not configured"
+    _vc_errors=$((_vc_errors + 1))
+  else
+    info "Base URL: %s" "$TDX_BASE_URL"
+    # Validate URL format
+    case "$TDX_BASE_URL" in
+      http://*|https://*)
+        info "URL format valid"
+        ;;
+      *)
+        err "Invalid URL format (must start with http:// or https://)"
+        _vc_errors=$((_vc_errors + 1))
+        ;;
+    esac
+  fi
+
+  # Check authentication
+  if [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+    info "Token authentication configured"
+  elif [ -n "${TDX_AUTH_HEADER:-}" ]; then
+    info "Custom header authentication configured"
+  elif [ -n "${TDX_USER:-}" ]; then
+    if [ -z "${TDX_PASS:-}" ]; then
+      warn "TDX_USER set but TDX_PASS is empty"
+      _vc_warnings=$((_vc_warnings + 1))
+    else
+      info "Basic authentication configured"
+    fi
+  else
+    err "No authentication method configured"
+    err "Set one of: TDX_AUTH_TOKEN, TDX_AUTH_HEADER, or TDX_USER/TDX_PASS"
+    _vc_errors=$((_vc_errors + 1))
+  fi
+
+  # Check TLS settings
+  if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+    warn "TLS verification is disabled (insecure)"
+    _vc_warnings=$((_vc_warnings + 1))
+  else
+    info "TLS verification enabled"
+  fi
+
+  # Check optional tools
+  if command_exists jq; then
+    info "jq is available (enables JSON formatting)"
+  else
+    info "jq not found (optional, enables JSON formatting)"
+  fi
+
+  if command_exists curl; then
+    info "curl is available"
+  else
+    err "curl is required but not found"
+    _vc_errors=$((_vc_errors + 1))
+  fi
+
+  # Summary
+  printf '\n'
+  if [ $_vc_errors -eq 0 ]; then
+    if [ $_vc_warnings -eq 0 ]; then
+      info "Configuration is valid"
+    else
+      info "Configuration is valid with %d warning(s)" "$_vc_warnings"
+    fi
+    return 0
+  else
+    err "Configuration has %d error(s)" "$_vc_errors"
+    return 1
+  fi
+}
+
+# Parse arguments
+subcommand=${1:-}
+[ -n "$subcommand" ] || { usage; exit 0; }
+shift || true
+
+case "$subcommand" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  list)
+    # Load configuration first
+    load_config "" >/dev/null 2>&1 || true
+    list_config
+    ;;
+  init)
+    create_config_template
+    ;;
+  edit)
+    edit_config
+    ;;
+  validate)
+    validate_configuration
+    ;;
+  path)
+    show_config_path
+    ;;
+  *)
+    err "unknown subcommand: %s" "$subcommand"
+    usage >&2
+    exit 2
+    ;;
+esac
