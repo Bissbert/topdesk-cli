@@ -7,11 +7,22 @@ USER_BASE := $(HOME)/.local
 USER_BINDIR := $(USER_BASE)/bin
 USER_APPDIR := $(USER_BASE)/share/topdesk-toolkit
 
-.PHONY: all install install-user uninstall uninstall-user clean gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
+.PHONY: all install install-user install-dev uninstall uninstall-user clean gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
 
 all:
-	@echo "Run 'make install' (system) or 'make install-user' (per-user)."
-	@echo "Other useful targets: gen-completions, install-completions, uninstall-completions, check"
+	@echo "Topdesk Toolkit - Installation Options:"
+	@echo ""
+	@echo "Installation targets:"
+	@echo "  make install          Install system-wide to $(PREFIX)"
+	@echo "  make install-user     Install for current user to ~/.local"
+	@echo "  make install-dev      Development install with symlinks to ~/.local"
+	@echo ""
+	@echo "Other targets:"
+	@echo "  make uninstall        Remove system-wide installation"
+	@echo "  make uninstall-user   Remove user installation"
+	@echo "  make test             Run test suite"
+	@echo "  make check            Run shellcheck and format check"
+	@echo "  make clean            Remove generated files"
 
 install:
 	@echo ">> Installing topdesk toolkit to $(APPDIR) and wrapper in $(BINDIR)"
@@ -25,10 +36,6 @@ install:
 	# install share directory contents
 	if [ -d share ]; then \
 		cp -r share/* $(APPDIR)/share/ 2>/dev/null || true; \
-	fi
-	# install the new install.sh script
-	if [ -f install.sh ]; then \
-		install -m 0755 install.sh $(APPDIR)/; \
 	fi
 
 	# wrapper in BINDIR to exec the installed dispatcher
@@ -48,10 +55,6 @@ install-user:
 	# install share directory contents
 	if [ -d share ]; then \
 		cp -r share/* $(USER_APPDIR)/share/ 2>/dev/null || true; \
-	fi
-	# install the new install.sh script
-	if [ -f install.sh ]; then \
-		install -m 0755 install.sh $(USER_APPDIR)/; \
 	fi
 	mkdir -p $(USER_BINDIR)
 	printf '%s\n' '#!/bin/sh' "exec \"$(USER_APPDIR)/bin/topdesk\" \"\$$@\"" > $(USER_BINDIR)/topdesk
@@ -77,6 +80,28 @@ install-user:
 	                 '  *) export PATH="$$HOME/.local/bin:$$PATH" ;;' \
 	                 'esac' >> $(HOME)/.zshrc ; }
 	@echo ">> Done. Open a new terminal or run: exec $$SHELL -l"
+
+install-dev:
+	@echo ">> Installing development symlinks to $(USER_APPDIR)"
+	@echo ">> This links directly to the source directory for development"
+	# Create base directories
+	mkdir -p $(USER_APPDIR) $(USER_BINDIR)
+	# Remove any existing installation
+	rm -rf $(USER_APPDIR)/lib $(USER_APPDIR)/tools $(USER_APPDIR)/share $(USER_APPDIR)/bin
+	# Create symlinks to source directories
+	ln -sf $(PWD)/lib $(USER_APPDIR)/lib
+	ln -sf $(PWD)/tools $(USER_APPDIR)/tools
+	ln -sf $(PWD)/share $(USER_APPDIR)/share
+	ln -sf $(PWD)/bin $(USER_APPDIR)/bin
+	# Link VERSION and README if they exist
+	[ -f VERSION ] && ln -sf $(PWD)/VERSION $(USER_APPDIR)/VERSION || true
+	[ -f README.md ] && ln -sf $(PWD)/README.md $(USER_APPDIR)/README.md || true
+	# Create wrapper in USER_BINDIR
+	printf '%s\n' '#!/bin/sh' "exec \"$(USER_APPDIR)/bin/topdesk\" \"\$$@\"" > $(USER_BINDIR)/topdesk
+	chmod 0755 $(USER_BINDIR)/topdesk
+	@echo ">> Development installation complete"
+	@echo ">> Changes to source files will be immediately reflected"
+	@echo ">> Ensure ~/.local/bin is in your PATH"
 
 uninstall:
 	@echo ">> Removing system install from $(PREFIX)"
