@@ -1,0 +1,326 @@
+#!/bin/sh
+# Comprehensive health check for Topdesk CLI
+set -eu
+
+_this="$0"; _dir=${_this%/*}; _root=${_dir%/tools}
+. "$_root/lib/common.sh"; . "$_root/lib/log.sh"; . "$_root/lib/args.sh"; . "$_root/lib/config.sh"
+
+usage() {
+  cat <<EOF
+Usage: ${TOOLBOX_NAME} doctor [options]
+
+Perform comprehensive health check and diagnostics for Topdesk CLI.
+
+Options:
+  -h, --help       Show this help
+  -v, --verbose    Show detailed output
+  -q, --quiet      Suppress non-critical output
+  --fix            Attempt to fix common issues (creates config template if missing)
+
+Checks performed:
+  - System dependencies (curl, jq)
+  - Configuration file existence and validity
+  - Required configuration variables
+  - Authentication settings
+  - Network connectivity to Topdesk API
+  - File permissions
+  - API endpoint accessibility
+
+Exit codes:
+  0  All checks passed
+  1  Some checks failed (see output for details)
+EOF
+}
+
+# Default values
+VERBOSE=0
+QUIET=0
+FIX_MODE=0
+CHECKS_PASSED=0
+CHECKS_FAILED=0
+CHECKS_WARNED=0
+
+# Color codes for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Disable colors if not a terminal or if NO_COLOR is set
+if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ]; then
+  GREEN=''; YELLOW=''; RED=''; BLUE=''; NC=''
+fi
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      shift
+      ;;
+    -q|--quiet)
+      QUIET=1
+      shift
+      ;;
+    --fix)
+      FIX_MODE=1
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      err "unknown option: %s" "$1"
+      usage >&2
+      exit 2
+      ;;
+    *)
+      err "unexpected argument: %s" "$1"
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+# Helper functions
+check_pass() {
+  [ $QUIET -eq 0 ] && printf "${GREEN}✓${NC} %s\n" "$*"
+  CHECKS_PASSED=$((CHECKS_PASSED + 1))
+}
+
+check_fail() {
+  printf "${RED}✗${NC} %s\n" "$*" >&2
+  CHECKS_FAILED=$((CHECKS_FAILED + 1))
+}
+
+check_warn() {
+  [ $QUIET -eq 0 ] && printf "${YELLOW}!${NC} %s\n" "$*" >&2
+  CHECKS_WARNED=$((CHECKS_WARNED + 1))
+}
+
+check_info() {
+  [ $VERBOSE -eq 1 ] && printf "${BLUE}ℹ${NC} %s\n" "$*"
+}
+
+section() {
+  [ $QUIET -eq 0 ] && printf "\n${BLUE}%s${NC}\n" "$*"
+}
+
+# Start health check
+[ $QUIET -eq 0 ] && printf "${BLUE}Topdesk CLI Doctor${NC}\n"
+[ $QUIET -eq 0 ] && printf "${BLUE}==================${NC}\n"
+
+# 1. Check system dependencies
+section "Checking system dependencies..."
+
+# Check curl (required)
+if command_exists curl; then
+  CURL_VERSION=$(curl --version | head -1 | cut -d' ' -f2)
+  check_pass "curl is installed (version $CURL_VERSION)"
+else
+  check_fail "curl is not installed (REQUIRED)"
+  check_info "Install curl using your package manager (apt, yum, brew, etc.)"
+fi
+
+# Check jq (optional but recommended)
+if command_exists jq; then
+  JQ_VERSION=$(jq --version 2>/dev/null | cut -d'-' -f2)
+  check_pass "jq is installed (version $JQ_VERSION)"
+else
+  check_warn "jq is not installed (optional, but recommended for JSON formatting)"
+  check_info "Install jq for better JSON output formatting"
+fi
+
+# Check shell type
+check_info "Shell: $SHELL"
+check_info "Script interpreter: $(readlink /proc/$$/exe 2>/dev/null || echo 'unknown')"
+
+# 2. Check configuration
+section "Checking configuration..."
+
+# Find config file
+CONFIG_FILE=$(find_config_file "" 2>/dev/null || echo "")
+if [ -n "$CONFIG_FILE" ]; then
+  check_pass "Configuration file found: $CONFIG_FILE"
+
+  # Check file permissions
+  if [ -r "$CONFIG_FILE" ]; then
+    check_pass "Configuration file is readable"
+  else
+    check_fail "Configuration file is not readable"
+  fi
+
+  # Check if file is not world-readable (security)
+  if [ -f "$CONFIG_FILE" ]; then
+    PERMS=$(ls -l "$CONFIG_FILE" | cut -c8-10)
+    if [ "$PERMS" = "---" ]; then
+      check_pass "Configuration file is not world-readable (secure)"
+    else
+      check_warn "Configuration file is world-readable (consider chmod 600)"
+    fi
+  fi
+else
+  check_fail "No configuration file found"
+  check_info "Expected locations:"
+  check_info "  - \$TOPDESK_CONFIG (if set)"
+  check_info "  - ~/.config/topdesk/config"
+  check_info "  - /etc/topdesk/config"
+
+  if [ $FIX_MODE -eq 1 ]; then
+    check_info "Creating configuration template..."
+    if create_config_template 2>/dev/null; then
+      check_pass "Created configuration template at ~/.config/topdesk/config"
+      check_info "Edit this file to add your Topdesk settings"
+    else
+      check_fail "Failed to create configuration template"
+    fi
+  else
+    check_info "Run 'topdesk config init' or use --fix to create a template"
+  fi
+fi
+
+# Load configuration
+load_config "" 2>/dev/null || true
+
+# 3. Check required variables
+section "Checking required configuration variables..."
+
+# Check base URL
+if [ -n "${TDX_BASE_URL:-}" ]; then
+  check_pass "TDX_BASE_URL is configured: ${TDX_BASE_URL%/}"
+
+  # Validate URL format
+  if validate_url "$TDX_BASE_URL"; then
+    check_pass "URL format is valid"
+  else
+    check_fail "Invalid URL format (must start with http:// or https://)"
+  fi
+else
+  check_fail "TDX_BASE_URL is not configured"
+  check_info "Set TDX_BASE_URL to your Topdesk instance URL"
+fi
+
+# Check authentication
+if [ -n "${TDX_AUTH_TOKEN:-}" ]; then
+  check_pass "Token authentication is configured"
+  check_info "Using TDX_AUTH_TOKEN"
+elif [ -n "${TDX_AUTH_HEADER:-}" ]; then
+  check_pass "Custom header authentication is configured"
+  check_info "Using TDX_AUTH_HEADER"
+elif [ -n "${TDX_USER:-}" ]; then
+  if [ -n "${TDX_PASS:-}" ]; then
+    check_pass "Basic authentication is configured"
+    check_info "Using TDX_USER and TDX_PASS"
+  else
+    check_warn "TDX_USER is set but TDX_PASS is empty"
+  fi
+else
+  check_fail "No authentication method configured"
+  check_info "Configure one of: TDX_AUTH_TOKEN, TDX_AUTH_HEADER, or TDX_USER/TDX_PASS"
+fi
+
+# 4. Check optional settings
+section "Checking optional settings..."
+
+# TLS verification
+if [ "${TDX_VERIFY_TLS:-1}" = "0" ]; then
+  check_warn "TLS verification is disabled (insecure)"
+  check_info "Consider enabling TLS verification for production use"
+else
+  check_pass "TLS verification is enabled"
+fi
+
+# Timeout settings
+check_info "Connection timeout: ${TDX_TIMEOUT:-30} seconds"
+check_info "Retry count: ${TDX_RETRY:-0}"
+if [ "${TDX_RETRY:-0}" -gt 0 ]; then
+  check_info "Retry delay: ${TDX_RETRY_DELAY:-0} seconds"
+fi
+
+# Pagination settings
+check_info "Default page size: ${TDX_PAGE_SIZE:-100}"
+check_info "Page size parameter: ${TDX_PAGE_PARAM:-pageSize}"
+check_info "Offset parameter: ${TDX_OFFSET_PARAM:-start}"
+
+# 5. Check network connectivity
+if [ -n "${TDX_BASE_URL:-}" ] && [ -n "${TDX_USER:-}${TDX_AUTH_TOKEN:-}${TDX_AUTH_HEADER:-}" ]; then
+  section "Checking network connectivity..."
+
+  # Try to ping the API
+  if [ $VERBOSE -eq 1 ]; then
+    PING_RESULT=$("$_root/bin/topdesk" ping -v 2>&1) || PING_EXIT=$?
+  else
+    PING_RESULT=$("$_root/bin/topdesk" ping -q 2>&1) || PING_EXIT=$?
+  fi
+
+  if [ "${PING_EXIT:-0}" -eq 0 ]; then
+    check_pass "API is reachable and authentication works"
+    [ $VERBOSE -eq 1 ] && echo "$PING_RESULT" | grep -E "Response:|HTTP:" | while read -r line; do
+      check_info "$line"
+    done
+  elif [ "${PING_EXIT:-0}" -eq 1 ]; then
+    check_fail "Cannot reach API at ${TDX_BASE_URL%/}"
+    check_info "Check network connectivity and firewall settings"
+  elif [ "${PING_EXIT:-0}" -eq 2 ]; then
+    check_fail "Authentication failed"
+    check_info "Check your credentials in the configuration"
+  else
+    check_fail "Configuration error prevents connectivity test"
+  fi
+else
+  check_warn "Skipping connectivity test (configuration incomplete)"
+fi
+
+# 6. Check tool permissions
+section "Checking tool permissions..."
+
+TOOLS_COUNT=$(find "$_root/tools" -type f 2>/dev/null | wc -l | tr -d ' ')
+EXEC_COUNT=$(find "$_root/tools" -type f -perm +111 2>/dev/null | wc -l | tr -d ' ')
+
+if [ "$TOOLS_COUNT" -eq "$EXEC_COUNT" ]; then
+  check_pass "All $TOOLS_COUNT tools have executable permissions"
+else
+  check_warn "$EXEC_COUNT of $TOOLS_COUNT tools are executable"
+  if [ $FIX_MODE -eq 1 ]; then
+    check_info "Setting executable permissions on all tools..."
+    chmod +x "$_root/tools"/* 2>/dev/null && check_pass "Fixed tool permissions" || check_fail "Failed to fix permissions"
+  else
+    check_info "Run with --fix to set executable permissions"
+  fi
+fi
+
+# 7. Check PATH setup
+section "Checking PATH configuration..."
+
+if command -v topdesk >/dev/null 2>&1; then
+  TOPDESK_PATH=$(command -v topdesk)
+  check_pass "topdesk is in PATH: $TOPDESK_PATH"
+else
+  check_warn "topdesk is not in PATH"
+  check_info "Add $(dirname "$_root/bin/topdesk") to your PATH"
+  check_info "Or install with: make install-user"
+fi
+
+# Summary
+section "Summary"
+[ $QUIET -eq 0 ] && printf "Checks passed: ${GREEN}$CHECKS_PASSED${NC}\n"
+[ $CHECKS_WARNED -gt 0 ] && printf "Warnings: ${YELLOW}$CHECKS_WARNED${NC}\n"
+[ $CHECKS_FAILED -gt 0 ] && printf "Checks failed: ${RED}$CHECKS_FAILED${NC}\n"
+
+# Exit status
+if [ $CHECKS_FAILED -gt 0 ]; then
+  [ $QUIET -eq 0 ] && printf "\n${RED}Some checks failed. Review the output above for details.${NC}\n"
+  exit 1
+elif [ $CHECKS_WARNED -gt 0 ]; then
+  [ $QUIET -eq 0 ] && printf "\n${YELLOW}All critical checks passed with warnings.${NC}\n"
+  exit 0
+else
+  [ $QUIET -eq 0 ] && printf "\n${GREEN}All checks passed! Topdesk CLI is properly configured.${NC}\n"
+  exit 0
+fi
