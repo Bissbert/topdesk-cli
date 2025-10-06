@@ -311,12 +311,14 @@ fi
 
 # Interpret results
 case "$HTTP_CODE" in
-  200|201|204)
+  200|201|204|206)
     output "Status: OK"
     output "Response: ${RESPONSE_TIME:-$ELAPSED}s"
     output "HTTP: $HTTP_CODE"
     output "API: ${TDX_BASE_URL%/}"
     [ $VERBOSE -eq 1 ] && output "Endpoint: $TEST_ENDPOINT"
+    # Note about 206
+    [ "$HTTP_CODE" = "206" ] && [ $VERBOSE -eq 1 ] && verbose "Note: HTTP 206 indicates paginated/partial content (expected)"
     exit 0
     ;;
   401|403)
