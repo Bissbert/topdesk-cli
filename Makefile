@@ -7,22 +7,29 @@ USER_BASE := $(HOME)/.local
 USER_BINDIR := $(USER_BASE)/bin
 USER_APPDIR := $(USER_BASE)/share/topdesk-toolkit
 
-.PHONY: all install install-user install-dev uninstall uninstall-user clean gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
+.PHONY: all help install install-user install-dev uninstall uninstall-user clean gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
 
-all:
+# Default target: install for current user
+all: install-user
+
+help:
 	@echo "Topdesk Toolkit - Installation Options:"
 	@echo ""
+	@echo "Default:"
+	@echo "  make                  Install for current user to ~/.local (same as install-user)"
+	@echo ""
 	@echo "Installation targets:"
+	@echo "  make install-user     Install for current user to ~/.local (DEFAULT)"
 	@echo "  make install          Install system-wide to $(PREFIX)"
-	@echo "  make install-user     Install for current user to ~/.local"
 	@echo "  make install-dev      Development install with symlinks to ~/.local"
 	@echo ""
 	@echo "Other targets:"
-	@echo "  make uninstall        Remove system-wide installation"
 	@echo "  make uninstall-user   Remove user installation"
+	@echo "  make uninstall        Remove system-wide installation"
 	@echo "  make test             Run test suite"
 	@echo "  make check            Run shellcheck and format check"
 	@echo "  make clean            Remove generated files"
+	@echo "  make help             Show this help message"
 
 install:
 	@echo ">> Installing topdesk toolkit to $(APPDIR) and wrapper in $(BINDIR)"

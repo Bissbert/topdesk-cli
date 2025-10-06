@@ -16,11 +16,12 @@ Quick Start
 
 Install
 
-Using Makefile (recommended):
-- User install: `make install-user` (installs to ~/.local)
+Using Makefile:
+- Quick install: `make` (installs to ~/.local for current user)
 - System install: `sudo make install PREFIX=/usr/local`
 - Development: `make install-dev` (symlinks for development)
 - Uninstall: `make uninstall-user` or `make uninstall`
+- Help: `make help` (show all available targets)
 
 Dependencies:
 - Required: `curl` (for API calls)
