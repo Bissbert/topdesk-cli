@@ -50,8 +50,10 @@ EOF
 
 list_commands() {
   if [ -d "$TOOLS_DIR" ]; then
-    find "$TOOLS_DIR" -mindepth 1 -maxdepth 1 -type f -perm -u+x \
-      -printf '%f\n' 2>/dev/null | LC_ALL=C sort
+    find "$TOOLS_DIR" -mindepth 1 -maxdepth 1 -type f -perm +111 2>/dev/null | \
+      while IFS= read -r path; do
+        basename "$path"
+      done | LC_ALL=C sort
   fi
 }
 

@@ -7,7 +7,7 @@ USER_BASE := $(HOME)/.local
 USER_BINDIR := $(USER_BASE)/bin
 USER_APPDIR := $(USER_BASE)/share/topdesk-toolkit
 
-.PHONY: all install install-user uninstall gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
+.PHONY: all install install-user uninstall uninstall-user clean gen-completions install-completions uninstall-completions check doctor test fmt fmt-check
 
 all:
 	@echo "Run 'make install' (system) or 'make install-user' (per-user)."
@@ -17,30 +17,44 @@ install:
 	@echo ">> Installing topdesk toolkit to $(APPDIR) and wrapper in $(BINDIR)"
 	mkdir -p $(APPDIR)
 	# copy suite files (preserve layout)
-	install -m 0644 VERSION README.md TODO.md $(APPDIR)/
+	install -m 0644 VERSION README.md $(APPDIR)/ 2>/dev/null || true
 	mkdir -p $(APPDIR)/bin $(APPDIR)/lib $(APPDIR)/tools $(APPDIR)/share
 	install -m 0755 bin/topdesk $(APPDIR)/bin/
-	install -m 0755 lib/*.sh $(APPDIR)/lib/
+	install -m 0644 lib/*.sh $(APPDIR)/lib/
 	install -m 0755 tools/* $(APPDIR)/tools/
-	# optional share dir if we add templates later
-	# install -m 0755 -d $(APPDIR)/share
+	# install share directory contents
+	if [ -d share ]; then \
+		cp -r share/* $(APPDIR)/share/ 2>/dev/null || true; \
+	fi
+	# install the new install.sh script
+	if [ -f install.sh ]; then \
+		install -m 0755 install.sh $(APPDIR)/; \
+	fi
 
 	# wrapper in BINDIR to exec the installed dispatcher
 	mkdir -p $(BINDIR)
-	printf '%s\n' '#!/bin/sh' 'exec "$(APPDIR)/bin/topdesk" "$$@"' > $(BINDIR)/topdesk
+	printf '%s\n' '#!/bin/sh' "exec \"$(APPDIR)/bin/topdesk\" \"\$$@\"" > $(BINDIR)/topdesk
 	chmod 0755 $(BINDIR)/topdesk
 	@echo ">> Done. Run: topdesk --version"
 
 install-user:
 	@echo ">> Installing topdesk toolkit to $(USER_APPDIR) and wrapper in $(USER_BINDIR)"
 	mkdir -p $(USER_APPDIR)
-	install -m 0644 VERSION README.md TODO.md $(USER_APPDIR)/
+	install -m 0644 VERSION README.md $(USER_APPDIR)/ 2>/dev/null || true
 	mkdir -p $(USER_APPDIR)/bin $(USER_APPDIR)/lib $(USER_APPDIR)/tools $(USER_APPDIR)/share
 	install -m 0755 bin/topdesk $(USER_APPDIR)/bin/
-	install -m 0755 lib/*.sh $(USER_APPDIR)/lib/
+	install -m 0644 lib/*.sh $(USER_APPDIR)/lib/
 	install -m 0755 tools/* $(USER_APPDIR)/tools/
+	# install share directory contents
+	if [ -d share ]; then \
+		cp -r share/* $(USER_APPDIR)/share/ 2>/dev/null || true; \
+	fi
+	# install the new install.sh script
+	if [ -f install.sh ]; then \
+		install -m 0755 install.sh $(USER_APPDIR)/; \
+	fi
 	mkdir -p $(USER_BINDIR)
-	printf '%s\n' '#!/bin/sh' 'exec "$(USER_APPDIR)/bin/topdesk" "$$@"' > $(USER_BINDIR)/topdesk
+	printf '%s\n' '#!/bin/sh' "exec \"$(USER_APPDIR)/bin/topdesk\" \"\$$@\"" > $(USER_BINDIR)/topdesk
 	chmod 0755 $(USER_BINDIR)/topdesk
 	@echo ">> Ensuring user bin is on PATH (add to ~/.profile, ~/.bashrc, ~/.zshrc if needed)"
 	@touch $(HOME)/.profile $(HOME)/.bashrc $(HOME)/.zshrc
@@ -65,9 +79,23 @@ install-user:
 	@echo ">> Done. Open a new terminal or run: exec $$SHELL -l"
 
 uninstall:
-	@echo ">> Removing system install"
+	@echo ">> Removing system install from $(PREFIX)"
 	rm -f $(BINDIR)/topdesk || true
 	rm -rf $(APPDIR) || true
+	@echo ">> System uninstall complete"
+
+uninstall-user:
+	@echo ">> Removing user install from $(USER_BASE)"
+	rm -f $(USER_BINDIR)/topdesk || true
+	rm -rf $(USER_APPDIR) || true
+	@echo ">> User uninstall complete"
+	@echo ">> Note: User config at ~/.config/topdesk/ was preserved"
+
+clean:
+	@echo ">> Cleaning generated files"
+	rm -rf completions/
+	rm -f VERSION 2>/dev/null || true
+	@echo ">> Clean complete"
 
 gen-completions:
 	@echo ">> Generating shell completions"
