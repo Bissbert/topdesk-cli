@@ -80,10 +80,12 @@ done
 # Helper functions
 verbose() {
   [ $VERBOSE -eq 1 ] && printf '%s\n' "$*" >&2
+  return 0
 }
 
 output() {
   [ $QUIET -eq 0 ] && printf '%s\n' "$*"
+  return 0
 }
 
 # Mask sensitive data in strings
@@ -278,8 +280,30 @@ fi
 
 # Extract parts from response
 # Response format: headers + body + ==STATUS==code + ==TIME==time
-HTTP_CODE=$(echo "$RESPONSE" | grep "^==STATUS==" | sed 's/==STATUS==//')
-RESPONSE_TIME=$(echo "$RESPONSE" | grep "^==TIME==" | sed 's/==TIME==//')
+HTTP_CODE=$(echo "$RESPONSE" | grep "^==STATUS==" | sed 's/==STATUS==//' | tr -d '[:space:]')
+RESPONSE_TIME=$(echo "$RESPONSE" | grep "^==TIME==" | sed 's/==TIME==//' | tr -d '[:space:]')
+
+# Fallback: try to extract HTTP code from response line if marker not found
+if [ -z "$HTTP_CODE" ]; then
+  verbose "Warning: ==STATUS== marker not found, trying fallback extraction"
+  HTTP_CODE=$(echo "$RESPONSE" | grep -E "^HTTP/[0-9.]+ [0-9]+" | head -1 | awk '{print $2}')
+fi
+
+# Validate HTTP_CODE was extracted
+if [ -z "$HTTP_CODE" ]; then
+  err "Failed to extract HTTP status code from response"
+  output "Status: PARSE_ERROR"
+  if [ $VERBOSE -eq 1 ]; then
+    verbose ""
+    verbose "Response debug (first 1000 chars):"
+    echo "$RESPONSE" | head -c 1000 | while IFS= read -r line; do
+      verbose "  $line"
+    done
+  else
+    err "Run with --verbose for response details"
+  fi
+  exit 3
+fi
 
 # Extract headers and body
 HEADERS=$(echo "$RESPONSE" | sed -n '1,/^$/p' | head -20)
@@ -354,14 +378,18 @@ case "$HTTP_CODE" in
     exit 1
     ;;
   *)
-    err "Unexpected response (HTTP $HTTP_CODE)"
+    err "Unexpected HTTP status: $HTTP_CODE"
     output "Status: UNKNOWN"
-    if [ $VERBOSE -eq 1 ] && [ -n "$BODY" ]; then
-      verbose ""
-      verbose "Response details:"
-      echo "$BODY" | head -10 | while IFS= read -r line; do
-        verbose "  $line"
-      done
+    if [ $VERBOSE -eq 1 ]; then
+      if [ -n "$BODY" ]; then
+        verbose ""
+        verbose "Response body:"
+        echo "$BODY" | head -10 | while IFS= read -r line; do
+          verbose "  $line"
+        done
+      fi
+    else
+      err "Run with --verbose for detailed response information"
     fi
     exit 1
     ;;
