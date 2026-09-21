@@ -1,138 +1,142 @@
-Topdesk Toolkit (topdesk) — Shell toolsuite
+# Topdesk Toolkit (`topdesk`)
 
-Overview
+Topdesk Toolkit is a portable POSIX `sh` command line client for common Topdesk
+REST operations. The `bin/topdesk` dispatcher loads configuration, selects a
+tool from `tools/`, and leaves HTTP transport to `curl`; the result is ordinary
+stdout/stderr that can be composed with other shell commands.
 
-- Minimal, portable POSIX sh toolsuite built on the `toolbox.sh` framework.
-- Dispatcher `topdesk` with subcommands in `tools/`.
-- Focus: convenient access to the Topdesk REST API for common tasks.
+```mermaid
+flowchart LR
+    U["shell user"] --> D["bin/topdesk<br/>dispatcher"]
+    D --> T["tools/<br/>subcommand"]
+    T --> L["lib/<br/>shared helpers"]
+    L --> X["curl"]
+    X --> A["Topdesk REST API"]
+    T --> O["stdout / stderr"]
 
-Quick Start
-
-1. First-time setup: `topdesk config init` (create configuration)
-2. Verify setup: `topdesk doctor` (check everything is working)
-3. Test connection: `topdesk ping` (verify API connectivity)
-4. List commands: `topdesk help` (show available commands)
-5. Start using: `topdesk incidents --limit 5` (list recent incidents)
-
-Install
-
-Using Makefile:
-- Quick install: `make` (installs to ~/.local for current user)
-- System install: `sudo make install PREFIX=/usr/local`
-- Development: `make install-dev` (symlinks for development)
-- Uninstall: `make uninstall-user` or `make uninstall`
-- Help: `make help` (show all available targets)
-
-Dependencies:
-- Required: `curl` (for API calls)
-- Optional: `jq` (for JSON formatting and CSV/TSV output)
-
-Configuration
-
-Set environment variables or place a config file at `$XDG_CONFIG_HOME/topdesk/config` (defaults to `~/.config/topdesk/config`). Example:
-
-```
-# Required
-TDX_BASE_URL="https://topdesk.example.com"
-
-# Auth options (choose one)
-# 1) Token (recommended)
-# Full Authorization header value is supplied via TDX_AUTH_TOKEN.
-# Example: "Bearer eyJ..." or "Basic Zm9vOmJhcg==" (as required by your setup)
-TDX_AUTH_TOKEN="Bearer <full-token>"
-
-# 2) Custom header (advanced)
-# If you need a non-Authorization header or multiple headers
-# TDX_AUTH_HEADER="Authorization: Bearer <token>"
-
-# 3) Basic auth (fallback)
-TDX_USER="apiuser"
-TDX_PASS="apipass"
-
-# TLS and network
-TDX_VERIFY_TLS=1         # 0 to skip verification (curl -k)
-TDX_TIMEOUT=30           # seconds
-TDX_RETRY=0              # curl retry count
-TDX_RETRY_DELAY=0        # seconds between retries
-
-# Pagination defaults (override if your instance uses different names)
-TDX_PAGE_SIZE=100
-TDX_PAGE_PARAM=pageSize
-TDX_OFFSET_PARAM=start
-TDX_OFFSET_START=0
-
-# Optional defaults for list outputs
-#TDX_DEFAULT_FIELDS=number,id,briefDescription
-#TDX_PERSON_FIELDS=id,networkLoginName,firstName,lastName
-#TDX_OPERATOR_FIELDS=id,name,networkLoginName
-#TDX_ASSET_FIELDS=id,objectNumber,name
+    style D fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style A fill:#238636,stroke:#3fb950,color:#fff
+    style O fill:#8250df,stroke:#bc8cff,color:#fff
 ```
 
-Notes on authentication
+## Quick start
 
-- If `TDX_AUTH_HEADER` is set, it is passed through to curl (`-H`).
-- Otherwise, if `TDX_USER` and `TDX_PASS` are set, Basic auth is used via curl `-u user:pass`.
-- This avoids guessing a specific Topdesk token scheme; set `TDX_AUTH_HEADER` when using API tokens.
+These local commands were run from the repository checkout and do not contact a
+Topdesk tenant:
 
-Commands (initial)
+```sh
+./bin/topdesk --version
+./bin/topdesk help
+./bin/topdesk config --help
+./bin/topdesk doctor --help
+```
 
-- `topdesk call` — low-level HTTP caller to Topdesk API with headers/auth handling (reports HTTP errors with informative exit codes and accepts repeatable `--param KEY=VAL`). Notable flags: `--pretty`, `--raw`, `--retry`, `--insecure`, TLS CA overrides, and workflow helpers like `--dry-run`, `--output FILE`, and `--tee FILE`.
-- `topdesk incidents` — list incidents; supports `--format {tsv|csv|json}`, `--headers`, repeatable `--param KEY=VAL`, the `--archived BOOL` filter, `--raw`, `--pretty`, `--all`, `--limit`, and custom pagination knobs.
-  - Pagination: `--all`, `--limit N`, `--page-size`, `--page-param`, `--offset-param`.
-- `topdesk incidents-get` — get incident by `--id` or `--number`; combine with `--all` to return every match for a number instead of the first hit.
-- `topdesk incidents-create` — create incident from JSON payload.
-- `topdesk incidents-update` — update incident by id (PATCH default, or PUT with `--method`).
-- `topdesk incidents-add-note` — add a note to an incident (override path if your API differs).
-- `topdesk incidents-attachments-upload` — upload attachment to an incident (multipart). Supports `--name`, `--timeout SEC`, and `--insecure` to skip TLS verification.
-- `topdesk incidents-attachments-download` — download an attachment from an incident. Supports `--output FILE`, `--timeout SEC`, and `--insecure`.
-- `topdesk persons` — list persons; `--format`, `--headers`, `--fields`, `--path`, `--query`, and repeatable `--param KEY=VAL` supported.
-  - Pagination: `--all`, `--limit N`, `--page-size`, `--page-param`, `--offset-param`.
-- `topdesk persons-get` — get person by id.
-- `topdesk persons-search` — list persons using an arbitrary query string (or repeatable `--param KEY=VAL`).
-- `topdesk persons-create` — create a person from JSON payload (`--path` override available).
-- `topdesk persons-update` — update a person by id via PATCH (default) or PUT; supports `--method` and `--path` overrides.
-- `topdesk operators` — list operators (`--format`, pagination, filtering, `--param KEY=VAL`).
-- `topdesk operators-get` — get operator by id.
-- `topdesk operators-search` — list operators using an arbitrary query string (or repeatable `--param KEY=VAL`).
-- `topdesk operators-create` — create an operator from JSON payload (`--path` override available).
-- `topdesk operators-update` — update an operator by id via PATCH (default) or PUT.
-- `topdesk assets` — list assets; `--format`, `--headers`, `--fields`, `--path`, `--query`, and repeatable `--param KEY=VAL` supported.
-  - Pagination: `--all`, `--limit N`, `--page-size`, `--page-param`, `--offset-param`.
-- `topdesk assets-get` — get asset by id.
-- `topdesk assets-search` — list assets using an arbitrary query string (or repeatable `--param KEY=VAL`).
-- `topdesk assets-create` — create an asset from JSON payload (`--path` override available).
-- `topdesk assets-update` — update an asset by id via PATCH (default) or PUT.
-- `topdesk ping` — test connectivity and authentication to Topdesk API. Supports `--verbose`, `--quiet`, `--timeout SEC`, and `--endpoint PATH` for custom endpoints.
-- `topdesk doctor` — comprehensive health check and diagnostics. Checks dependencies, configuration, authentication, network connectivity, and permissions. Supports `--verbose`, `--quiet`, and `--fix` to attempt automatic fixes.
-- `topdesk config` — manage config files (`list`, `path`, `init`, `edit`, `validate`).
-- `topdesk completion` — shell completion (bash/zsh) inherited from framework.
+For a real API request, set a tenant URL and one supported authentication
+method. The values below are placeholders and are not usable credentials:
 
-Examples
+```sh
+export TDX_BASE_URL="https://tenant.example.invalid"
+export TDX_AUTH_TOKEN="Bearer <token>"
 
-Configuration and health checks:
-- `topdesk config init` — create a configuration template
-- `topdesk config list` — show current configuration (with sensitive values redacted)
-- `EDITOR="code --wait" topdesk config edit` — edit configuration in VS Code
-- `topdesk ping` — quick connectivity test
-- `topdesk ping -v` — verbose connectivity test with details
-- `topdesk doctor` — comprehensive health check
-- `topdesk doctor --fix` — health check with automatic fixes
+./bin/topdesk ping
+./bin/topdesk incidents
+```
 
-API operations:
-- `topdesk call GET /tas/api/incidents --param pageSize 50 --param archived false --pretty`
-- `topdesk incidents --page-size 200 --format tsv --headers`
-- `topdesk incidents --all --format csv --headers`
-- `topdesk persons --all --fields id,networkLoginName,firstName,lastName --format tsv --headers`
-- `topdesk operators --fields id,name,networkLoginName --format csv`
-- `topdesk persons-create --data @person.json`
-- `topdesk assets-update --id a1 --data '{"status":"In repair"}'`
+The local inspection commands are verified. The API commands require a real
+tenant and credentials, so they were not run against Topdesk for this pass.
 
-Testing
+## Architecture
 
-- `make test` runs the TAP suite (uses the mocked curl shim; no real network traffic).
-- `make check` runs shellcheck plus `shfmt -d` when available.
-- `make fmt` formats all shell scripts with shfmt (if installed).
+The dispatcher loads the selected configuration before resolving a command. A
+resource wrapper either calls `tools/call` once or uses the pagination helpers
+to repeat that call and shape JSON, TSV, or CSV output.
 
-Limitations
+```mermaid
+flowchart TD
+    S["topdesk command"] --> D["dispatcher<br/>global options + config load"]
+    D --> R{"resource or system tool?"}
+    R -->|"incidents / persons / operators / assets"| W["resource wrapper"]
+    R -->|"config / ping / doctor / completion"| Q["local or diagnostic tool"]
+    W --> P{"--all or --limit?"}
+    P -->|yes| PG["pagination helpers<br/>page size + offset"]
+    P -->|no| C["tools/call"]
+    PG --> C
+    C --> H["select auth<br/>header, token, or basic"]
+    H --> X["curl request"]
+    X --> API["Topdesk REST API"]
+    API --> C
+    C --> OUT["raw / pretty / tabular output"]
+    Q --> OUT
 
-- Asset template ("asset type") CRUD is not exposed by the Topdesk REST API; templates must still be managed through the web UI or import tools.
+    style D fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style H fill:#9e6a03,stroke:#d29922,color:#fff
+    style API fill:#238636,stroke:#3fb950,color:#fff
+    style OUT fill:#8250df,stroke:#bc8cff,color:#fff
+```
+
+## Capability overview
+
+| Area | Entry points | What it does |
+|---|---|---|
+| HTTP | `call` | Builds a `curl` request with query, body, headers, TLS, retries, and output controls. |
+| Incidents | `incidents` and `incidents-*` | Lists, reads, creates, updates, annotates, uploads, and downloads incident data. |
+| People and operators | `persons*`, `operators*` | Lists, searches, reads, creates, and updates records. |
+| Assets | `assets*` | Lists, searches, reads, creates, and updates assets. |
+| Output | list tools | Emits JSON, or jq-shaped TSV/CSV with optional headers. |
+| Configuration | `config` | Finds, initializes, edits, lists, validates, and reports the active config file. |
+| Health | `ping`, `doctor` | Separates API connectivity/authentication checks from local diagnostics. |
+| Shell integration | `completion` | Prints Bash or Zsh completion code. |
+
+The complete source-derived table of executable tools is in
+[`docs/commands.md`](docs/commands.md).
+
+## Measured results
+
+The measurement scripts count the current shell source and derive the command
+table from the executable files. The clean-source run used for this pass
+reported:
+
+| Measurement | Result |
+|---|---:|
+| shell files under `bin/`, `lib/`, and `tools/` | 35 |
+| shell source lines | 3,535 |
+| shell source bytes | 101,088 |
+| executable tools | 27 |
+
+The repository test command was also run in a clean source snapshot. It printed
+5 passing and 28 failing checks, but returned status 0 because the test runner
+does not propagate TAP failures. The failures are consistent with the
+non-executable test shims and include mocked API output, fixture comparisons,
+timeout/error cases, and config editor behavior. See
+[`docs/measurement.md`](docs/measurement.md) for the commands and verification
+boundary.
+
+## Repository layout
+
+```text
+bin/topdesk       dispatcher and global option handling
+lib/              configuration, logging, arguments, JSON, and pagination
+tools/            executable command implementations
+devtools/         source-shape and command-surface measurement scripts
+share/examples/   configuration template
+tests/            shell test suite and mocked curl/editor helpers
+docs/             command table, subsystem write-ups, and measurement notes
+```
+
+## Known limitations
+
+- No real Topdesk tenant or credentials were available, so API responses,
+  authentication, uploads, downloads, and latency were not measured.
+- `curl` is required. `jq` is optional for JSON formatting and required for
+  tabular output and pagination helpers.
+- Configuration files are shell files sourced by the client. They are plain
+  text, not encrypted storage; `doctor` can warn about world-readable files.
+- `call --dry-run` prints the constructed curl command, including authentication
+  arguments when configured. Do not paste that output into shared logs.
+- `--insecure` and `TDX_VERIFY_TLS=0` disable TLS certificate verification.
+- The current `doctor` implementation can exit early in normal and quiet modes
+  because suppressed helper calls return failure under `set -e`.
+- The checked-in test shims are not executable, so `make test` can call real
+  network tools; the test runner can still return success after TAP failures.
+- Asset-template management is not exposed by the command surface; it remains
+  outside this client.
