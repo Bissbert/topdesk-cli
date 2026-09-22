@@ -111,6 +111,7 @@ check_info() {
 
 section() {
   [ $QUIET -eq 0 ] && printf "\n${BLUE}%s${NC}\n" "$*"
+  return 0
 }
 
 # Start health check
