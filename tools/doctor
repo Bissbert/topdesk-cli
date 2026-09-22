@@ -106,6 +106,7 @@ check_warn() {
 
 check_info() {
   [ $VERBOSE -eq 1 ] && printf "${BLUE}ℹ${NC} %s\n" "$*"
+  return 0
 }
 
 section() {
