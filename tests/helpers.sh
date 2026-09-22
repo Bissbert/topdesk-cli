@@ -5,6 +5,12 @@ TEST_DIR=${TEST_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)}
 ROOT_DIR=${ROOT_DIR:-${TEST_DIR%/tests}}
 PATH="$ROOT_DIR/bin:$TEST_DIR/bin:$PATH"
 
+if [ "$(command -v curl)" != "$TEST_DIR/bin/curl" ] ||
+   [ "$(command -v editor)" != "$TEST_DIR/bin/editor" ]; then
+  printf 'test setup error: test shims are not resolving from %s/bin\n' "$TEST_DIR" >&2
+  exit 1
+fi
+
 export TOOLBOX_CONFIG_DIR=${TOOLBOX_CONFIG_DIR:-"$TEST_DIR/config"}
 rm -rf "$TOOLBOX_CONFIG_DIR" 2>/dev/null || :
 
