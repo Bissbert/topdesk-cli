@@ -276,4 +276,9 @@ t=$((t+1))
 
 rm -rf "$CFG_DIR" "$CFG_EDIT_DIR"
 
+failures=$TEST_FAILURES
 rm -f "$errfile"
+
+if [ "$failures" -gt 0 ]; then
+  exit 1
+fi
