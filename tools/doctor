@@ -106,10 +106,12 @@ check_warn() {
 
 check_info() {
   [ $VERBOSE -eq 1 ] && printf "${BLUE}ℹ${NC} %s\n" "$*"
+  return 0
 }
 
 section() {
   [ $QUIET -eq 0 ] && printf "\n${BLUE}%s${NC}\n" "$*"
+  return 0
 }
 
 # Start health check
