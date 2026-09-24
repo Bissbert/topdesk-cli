@@ -11,8 +11,14 @@ if [ "$(command -v curl)" != "$TEST_DIR/bin/curl" ] ||
   exit 1
 fi
 
-export TOOLBOX_CONFIG_DIR=${TOOLBOX_CONFIG_DIR:-"$TEST_DIR/config"}
-rm -rf "$TOOLBOX_CONFIG_DIR" 2>/dev/null || :
+# Every config path the tools resolve lives in a throwaway HOME, so the suite
+# never reads or writes the developer's own ~/.config/topdesk/config.
+TEST_HOME=$(mktemp -d "${TMPDIR:-/tmp}/topdesk-test.XXXXXX")
+trap 'rm -rf "$TEST_HOME"' EXIT
+export HOME="$TEST_HOME"
+export XDG_CONFIG_HOME="$TEST_HOME/.config"
+export TOOLBOX_CONFIG_DIR="$XDG_CONFIG_HOME/topdesk"
+unset TOPDESK_CONFIG
 
 export TDX_BASE_URL=${TDX_BASE_URL:-http://mock.local}
 export TDX_VERIFY_TLS=${TDX_VERIFY_TLS:-1}
@@ -35,3 +41,13 @@ run_cmd() { "$@"; }
 contains() { hay=$1; needle=$2; printf '%s' "$hay" | grep -F -- "$needle" >/dev/null 2>&1; }
 
 have_jq() { command -v jq >/dev/null 2>&1; }
+
+# check NAME COMMAND... : one TAP line per check, numbered in order.
+T_NUM=0
+check() {
+  T_NUM=$((T_NUM + 1))
+  _name=$1; shift
+  if "$@"; then ok "$T_NUM" "$_name"; else not_ok "$T_NUM" "$_name"; fi
+}
+logged() { grep -F -- "$1" "$TEST_CURL_LOG" >/dev/null 2>&1; }
+finish() { echo "1..$T_NUM"; [ "$TEST_FAILURES" -eq 0 ]; }

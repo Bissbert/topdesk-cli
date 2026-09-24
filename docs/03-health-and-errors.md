@@ -67,18 +67,15 @@ tenant or missing credential usable.
 permissions. `--fix` can create a config template or adjust tool permissions,
 so it is not a read-only diagnostic option.
 
-The current `doctor` source has two control-flow bugs documented in
-[`BUGS-FOUND.md`](BUGS-FOUND.md): the default run can stop after its first
-suppressed `check_info`, and `--quiet` can stop at its first suppressed
-`section`. Those are the observed current behaviors, not claims about an
-intended future implementation.
+`check_info` and `section` always return 0, so the default, `--quiet` and
+`--verbose` runs reach the summary (fixed in
+[`d6bc17a`](https://github.com/Bissbert/topdesk-cli/commit/d6bc17a) and
+[`a5c400c`](https://github.com/Bissbert/topdesk-cli/commit/a5c400c)). The
+permission check uses `find -perm -u=x`, which GNU `find` accepts, and an unset
+`SHELL` prints `Shell: unknown` (both fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d),
+[#6](https://github.com/Bissbert/topdesk-cli/issues/6) and [#7](https://github.com/Bissbert/topdesk-cli/issues/7)). `tests/doctor.sh` covers each of these.
 
 ## Known limitations
 
-- The doctor bugs above prevent a complete diagnostic summary on the current
-  source until the recorded fixes are applied.
-- The test suite's curl and editor shims are not executable, and the TAP runner
-  does not propagate its `not ok` count into the process status. The measured
-  test result is therefore not a reliable pass/fail exit signal.
-- API status behavior was not exercised against a real tenant for this pass.
+- API status behavior is covered only by the curl shim, not by a real tenant.
 - A diagnostic body preview can carry sensitive server data into stderr logs.

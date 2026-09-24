@@ -1,0 +1,143 @@
+
+=== environment
+Linux 6.5.11-linuxkit aarch64
+GNU bash, version 5.2.15(1)-release (aarch64-unknown-linux-gnu)
+curl 7.88.1 (aarch64-unknown-linux-gnu) libcurl/7.88.1 OpenSSL/3.0.20 zlib/1.2.13 brotli/1.0.9 zstd/1.5.4 libidn2/2.3.3 libpsl/0.21.2 (+libidn2/2.3.3) libssh2/1.10.0 nghttp2/1.52.0 librtmp/2.3 OpenLDAP/2.5.13
+jq-1.6
+sh -> dash
+
+=== syntax check: sh -n on bin, lib, tools
+files with syntax errors: 0
+
+=== devtools/repo-stats.sh
+
+== Shell source (bin, lib, tools) ==
+component                       lines      bytes
+bin                               128       3411  (1 files)
+lib                               708      17598  (7 files)
+tools                            2702      80113  (27 files)
+
+== Totals ==
+shell files            35
+shell lines            3538
+shell bytes            101122
+subcommands            27
+version                0.1.0
+
+== Distinct API paths reached ==
+/tas/api/assetmgmt/assets
+/tas/api/assetmgmt/assets/{id}
+/tas/api/incidents
+/tas/api/incidents/{id}
+/tas/api/incidents/{id}/attachments
+/tas/api/incidents/{id}/attachments/{attachmentId}/download
+/tas/api/incidents/{id}/notes
+/tas/api/operators
+/tas/api/operators/{id}
+/tas/api/persons
+/tas/api/persons/{id}
+
+== TDX_* configuration variables read ==
+TDX_ASSET_FIELDS TDX_AUTH_HEADER TDX_AUTH_TOKEN TDX_BASE_URL TDX_DEFAULT_FIELDS TDX_OFFSET_PARAM TDX_OFFSET_START TDX_OPERATOR_FIELDS TDX_PAGE_PARAM TDX_PAGE_SIZE TDX_PASS TDX_PERSON_FIELDS TDX_RETRY TDX_RETRY_DELAY TDX_TIMEOUT TDX_USER TDX_VERIFY_TLS 
+
+== Exit codes reachable from tools/call ==
+exit 0 exit 1 exit 2 exit 3 exit 4 exit 5 exit 6 
+
+== Exit codes reachable from tools/ping ==
+exit 0 exit 1 exit 2 exit 3 
+
+== Scripts that invoke curl directly ==
+  tools/call
+  tools/doctor
+  tools/incidents-attachments-download
+  tools/incidents-attachments-upload
+  tools/ping
+
+=== command table matches docs/commands.md
+identical (35 lines)
+
+=== local commands
+topdesk --version  exit=0
+topdesk help  exit=0
+topdesk config --help  exit=0
+topdesk doctor --help  exit=0
+
+=== test shim modes
+-rwxr-xr-x tests/bin/curl
+-rwxr-xr-x tests/bin/editor
+
+=== make test, fresh HOME
+# run.sh
+1..33
+# commands.sh
+1..33
+# doctor.sh
+1..10
+# isolation.sh
+1..6
+Summary: 82 passed, 0 failed
+exit=0
+
+=== files make test left under HOME
+files: 0
+
+=== make test again, same HOME
+Summary: 82 passed, 0 failed
+exit=0
+
+=== make test with an existing user config
+Summary: 82 passed, 0 failed
+exit=0
+user config unchanged
+
+=== TAP status propagation: one check forced to fail, fresh HOME
+not ok 1 - help output
+exit=1
+
+=== doctor, empty config location
+Topdesk CLI Doctor
+==================
+
+Checking system dependencies...
+✓ curl is installed (version 7.88.1)
+✓ jq is installed (version 1.6)
+
+Checking configuration...
+✗ No configuration file found
+
+Checking required configuration variables...
+✗ TDX_BASE_URL is not configured
+✗ No authentication method configured
+
+Checking optional settings...
+✓ TLS verification is enabled
+! Skipping connectivity test (configuration incomplete)
+
+Checking tool permissions...
+✓ All 27 tools have executable permissions
+
+Checking PATH configuration...
+! topdesk is not in PATH
+
+Summary
+Checks passed: 4
+Warnings: 2
+Checks failed: 3
+
+Some checks failed. Review the output above for details.
+
+=== doctor --quiet, empty config location
+✗ No configuration file found
+✗ TDX_BASE_URL is not configured
+✗ No authentication method configured
+Warnings: 2
+Checks failed: 3
+lines=5
+
+=== doctor --verbose, empty config location
+info lines=16 summary lines=1
+
+=== doctor with SHELL unset
+exit=1
+ℹ Shell: unknown
+Checks failed: 3

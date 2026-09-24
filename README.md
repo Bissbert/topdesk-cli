@@ -66,8 +66,8 @@ Topdesk tenant:
 ./bin/topdesk doctor --help
 ```
 
-The local inspection commands are verified. The API commands require a real
-tenant and credentials, so they were not run against Topdesk for this pass.
+These four commands exit 0 in a Linux container. The API commands need a real
+tenant and credentials; they are covered only by the test suite's curl shim.
 
 ## How it works
 
@@ -138,27 +138,44 @@ Config file at `~/.config/topdesk/config` (XDG) or a path passed with `--config`
 | `TDX_TIMEOUT` | Request timeout in seconds (default `30`) |
 | `TDX_PAGE_SIZE` | Default page size for paginated calls (default `100`) |
 
-## Measured results
+## Results
 
-The measurement scripts count the current shell source and derive the command
-table from the executable files. The clean-source run used for this pass
-reported:
+All results come from `devtools/linux-run.sh`, run in a
+`python:3.12-slim-bookworm` container (`/bin/sh` is dash):
 
 | Measurement | Result |
 |---|---:|
 | shell files under `bin/`, `lib/`, and `tools/` | 35 |
-| shell source lines | 3,535 |
-| shell source bytes | 101,088 |
+| shell source lines | 3,538 |
+| shell source bytes | 101,122 |
 | executable tools | 27 |
+| `make test` | 82 passed, 0 failed |
 
-The repository test command was also run in a clean source snapshot. At the
-time of this pass it printed 5 passing and 28 failing checks yet returned
-status 0, because the test shims were not executable and the runner did not
-propagate TAP failures. Both defects were corrected on the default branch
-afterwards: the shims are executable and a failing TAP run now exits non-zero.
-See
-[`docs/measurement.md`](docs/measurement.md) for the commands and verification
-boundary.
+`doctor` runs all its sections and prints a summary in the default, `--quiet`
+and `--verbose` modes, counts all 27 tools as executable, and runs with `SHELL`
+unset. Bugs are tracked as
+[GitHub issues](https://github.com/Bissbert/topdesk-cli/issues).
+
+See [`docs/measurement.md`](docs/measurement.md) for the commands and the full
+output.
+
+## Tests
+
+```sh
+make test          # all test files, TAP output and a summary line
+sh tests/docker.sh # the same in a Debian container
+```
+
+The suite puts a mock `curl` and `editor` from `tests/bin` first on `PATH`, so
+no tenant is contacted. Each test file runs in its own temporary `HOME`, so
+your `~/.config/topdesk/config` is neither read nor changed.
+
+| File | Covers |
+|---|---|
+| `tests/run.sh` | dispatcher, `call`, listing, pagination, formats, CRUD, config, completion |
+| `tests/commands.sh` | the other commands: request method, path, payload, auth variants, exit codes |
+| `tests/doctor.sh` | every `doctor` section, `--quiet`, `--fix`, `SHELL` unset |
+| `tests/isolation.sh` | suite isolation from the user config, failing checks fail the run |
 
 ## Repository layout
 
@@ -168,14 +185,14 @@ lib/              configuration, logging, arguments, JSON, and pagination
 tools/            executable command implementations
 devtools/         source-shape and command-surface measurement scripts
 share/examples/   configuration template
-tests/            shell test suite and mocked curl/editor helpers
+tests/            test files, mock curl/editor, Docker runner
 docs/             command table, subsystem write-ups, and measurement notes
 ```
 
 ## Known limitations
 
 - No real Topdesk tenant or credentials were available, so API responses,
-  authentication, uploads, downloads, and latency were not measured.
+  authentication, uploads, downloads, and latency are not covered.
 - `curl` is required. `jq` is optional for JSON formatting and required for
   tabular output and pagination helpers.
 - Configuration files are shell files sourced by the client. They are plain
