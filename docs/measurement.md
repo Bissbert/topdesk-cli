@@ -25,7 +25,7 @@ flowchart LR
     S --> D["doctor runs"]
     R --> N["README results"]
     C --> M["docs/commands.md"]
-    T --> B["BUGS-FOUND.md"]
+    T --> B["test and doctor results"]
     D --> B
 
     style S fill:#1f6feb,stroke:#58a6ff,color:#fff
@@ -51,7 +51,7 @@ flowchart LR
 ```
 shell files            35
 shell lines            3538
-shell bytes            101111
+shell bytes            101122
 subcommands            27
 version                0.1.0
 ```
@@ -77,19 +77,29 @@ topdesk doctor --help  exit=0
 
 ## Test suite
 
-`make test` with a fresh `HOME`:
+`make test` runs the four test files through `tests/all.sh`. With a fresh
+`HOME`:
 
 ```
-ok=31 not_ok=2 exit=2
+# run.sh
+1..33
+# commands.sh
+1..33
+# doctor.sh
+1..10
+# isolation.sh
+1..6
+Summary: 82 passed, 0 failed
+exit=0
 ```
 
-Checks 24 (`config init template`) and 25 (`config edit invokes editor`) fail.
-Both write to the real user config instead of the test directory, and a second
-run in the same `HOME` fails 19 checks. That is entry 5 in
-[Bugs found](BUGS-FOUND.md).
+The run leaves no files in `HOME`. A second run in the same `HOME`, and a run
+with an existing `~/.config/topdesk/config` pointing at another tenant, both
+give the same summary, and that config file is unchanged
+([#5](https://github.com/Bissbert/topdesk-cli/issues/5)).
 
 With one check deliberately broken in a copy of `tests/run.sh`, the runner
-reports it and exits 1, so TAP failures reach the exit status (entry 4).
+reports only that check and exits 1, so TAP failures reach the exit status.
 
 ## `doctor`
 
@@ -98,15 +108,16 @@ the summary:
 
 ```
 Summary
-Checks passed: 3
-Warnings: 3
+Checks passed: 4
+Warnings: 2
 Checks failed: 3
 ```
 
 `--quiet` prints the three failed checks and the two counts (5 lines).
-`--verbose` adds 17 info lines. The permission section reports
-`0 of 27 tools are executable` although all are (entry 6), and with `SHELL`
-unset the run stops at `tools/doctor:143` with exit 2 (entry 7).
+`--verbose` adds 16 info lines. The permission section reports
+`All 27 tools have executable permissions` ([#6](https://github.com/Bissbert/topdesk-cli/issues/6)). With `SHELL` unset the
+run prints `Shell: unknown` and reaches the summary, exiting 1 for the failed
+configuration checks ([#7](https://github.com/Bissbert/topdesk-cli/issues/7)).
 
 ## Not covered
 

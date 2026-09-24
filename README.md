@@ -147,22 +147,35 @@ All results come from `devtools/linux-run.sh`, run in a
 |---|---:|
 | shell files under `bin/`, `lib/`, and `tools/` | 35 |
 | shell source lines | 3,538 |
-| shell source bytes | 101,111 |
+| shell source bytes | 101,122 |
 | executable tools | 27 |
-| `make test` with a fresh `HOME` | 31 of 33 pass, exit 2 |
-
-The two failing checks are config tests that write to the real user config
-instead of the test directory ([bug 5](docs/BUGS-FOUND.md#5-config-tests-write-to-the-real-user-config)).
-Running the suite again in the same `HOME` fails 19 checks, so run it with a
-throwaway `HOME` until that is fixed.
+| `make test` | 82 passed, 0 failed |
 
 `doctor` runs all its sections and prints a summary in the default, `--quiet`
-and `--verbose` modes. On Linux its permission check wrongly reports
-`0 of 27 tools are executable` ([bug 6](docs/BUGS-FOUND.md#6-doctor-counts-no-executable-tools-on-linux)),
-and it stops with exit 2 when `SHELL` is unset ([bug 7](docs/BUGS-FOUND.md#7-doctor-aborts-when-shell-is-unset)).
+and `--verbose` modes, counts all 27 tools as executable, and runs with `SHELL`
+unset. Bugs are tracked as
+[GitHub issues](https://github.com/Bissbert/topdesk-cli/issues).
 
 See [`docs/measurement.md`](docs/measurement.md) for the commands and the full
 output.
+
+## Tests
+
+```sh
+make test          # all test files, TAP output and a summary line
+sh tests/docker.sh # the same in a Debian container
+```
+
+The suite puts a mock `curl` and `editor` from `tests/bin` first on `PATH`, so
+no tenant is contacted. Each test file runs in its own temporary `HOME`, so
+your `~/.config/topdesk/config` is neither read nor changed.
+
+| File | Covers |
+|---|---|
+| `tests/run.sh` | dispatcher, `call`, listing, pagination, formats, CRUD, config, completion |
+| `tests/commands.sh` | the other commands: request method, path, payload, auth variants, exit codes |
+| `tests/doctor.sh` | every `doctor` section, `--quiet`, `--fix`, `SHELL` unset |
+| `tests/isolation.sh` | suite isolation from the user config, failing checks fail the run |
 
 ## Repository layout
 
@@ -172,7 +185,7 @@ lib/              configuration, logging, arguments, JSON, and pagination
 tools/            executable command implementations
 devtools/         source-shape and command-surface measurement scripts
 share/examples/   configuration template
-tests/            shell test suite and mocked curl/editor helpers
+tests/            test files, mock curl/editor, Docker runner
 docs/             command table, subsystem write-ups, and measurement notes
 ```
 
@@ -180,8 +193,6 @@ docs/             command table, subsystem write-ups, and measurement notes
 
 - No real Topdesk tenant or credentials were available, so API responses,
   authentication, uploads, downloads, and latency are not covered.
-- `make test` edits `~/.config/topdesk/config` (bug 5), and `doctor` has two
-  open Linux issues (bugs 6 and 7). See [`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
 - `curl` is required. `jq` is optional for JSON formatting and required for
   tabular output and pagination helpers.
 - Configuration files are shell files sourced by the client. They are plain

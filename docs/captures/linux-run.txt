@@ -15,12 +15,12 @@ files with syntax errors: 0
 component                       lines      bytes
 bin                               128       3411  (1 files)
 lib                               708      17598  (7 files)
-tools                            2702      80102  (27 files)
+tools                            2702      80113  (27 files)
 
 == Totals ==
 shell files            35
 shell lines            3538
-shell bytes            101111
+shell bytes            101122
 subcommands            27
 version                0.1.0
 
@@ -67,56 +67,31 @@ topdesk doctor --help  exit=0
 -rwxr-xr-x tests/bin/editor
 
 === make test, fresh HOME
->> Running test suite
+# run.sh
 1..33
-ok 1 - help shows usage and commands
-ok 2 - call passes Authorization header
-ok 3 - call dry-run
-ok 4 - call output writes file
-ok 5 - incidents json page
-ok 6 - incidents paginated json merged
-ok 7 - incidents-get by id
-ok 8 - incidents-get by number
-ok 9 - persons list
-ok 10 - persons paginated json
-ok 11 - assets list
-ok 12 - config list
-ok 13 - incidents limit respects cap
-ok 14 - add-note escapes newline
-ok 15 - attachments auto-disable TLS
-ok 16 - call surfaces http error
-ok 17 - call surfaces timeout
-ok 18 - incidents tsv fixture
-ok 19 - incidents csv fixture
-ok 20 - operators list
-ok 21 - operators paginated
-ok 22 - operators-get
-ok 23 - operators-search
-not ok 24 - config init template
-not ok 25 - config edit invokes editor
-ok 26 - persons-create
-ok 27 - persons-update
-ok 28 - operators-create
-ok 29 - operators-update
-ok 30 - assets-create
-ok 31 - assets-update
-ok 32 - completion bash call options
-ok 33 - completion zsh call options
-make: *** [Makefile:181: test] Error 1
-ok=31 not_ok=2 exit=2
+# commands.sh
+1..33
+# doctor.sh
+1..10
+# isolation.sh
+1..6
+Summary: 82 passed, 0 failed
+exit=0
 
 === files make test left under HOME
-$HOME/.config/topdesk/config
-lines added by the stub editor: 1
+files: 0
 
 === make test again, same HOME
-ok=14 not_ok=19 exit=2
-lines added by the stub editor: 2
+Summary: 82 passed, 0 failed
+exit=0
+
+=== make test with an existing user config
+Summary: 82 passed, 0 failed
+exit=0
+user config unchanged
 
 === TAP status propagation: one check forced to fail, fresh HOME
 not ok 1 - help output
-not ok 24 - config init template
-not ok 25 - config edit invokes editor
 exit=1
 
 === doctor, empty config location
@@ -139,14 +114,14 @@ Checking optional settings...
 ! Skipping connectivity test (configuration incomplete)
 
 Checking tool permissions...
-! 0 of 27 tools are executable
+✓ All 27 tools have executable permissions
 
 Checking PATH configuration...
 ! topdesk is not in PATH
 
 Summary
-Checks passed: 3
-Warnings: 3
+Checks passed: 4
+Warnings: 2
 Checks failed: 3
 
 Some checks failed. Review the output above for details.
@@ -155,14 +130,14 @@ Some checks failed. Review the output above for details.
 ✗ No configuration file found
 ✗ TDX_BASE_URL is not configured
 ✗ No authentication method configured
-Warnings: 3
+Warnings: 2
 Checks failed: 3
 lines=5
 
 === doctor --verbose, empty config location
-info lines=17 summary lines=1
+info lines=16 summary lines=1
 
 === doctor with SHELL unset
-exit=2
-✓ jq is installed (version 1.6)
-./tools/doctor: 143: SHELL: parameter not set
+exit=1
+ℹ Shell: unknown
+Checks failed: 3
