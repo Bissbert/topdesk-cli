@@ -61,9 +61,9 @@ returned. `--limit` stops the aggregate at the requested item count. JSON
 pagination is assembled with `jq`; tabular output extracts dot paths and emits
 TSV or CSV, optionally preceded by a header row.
 
-The API call path was not exercised against a real tenant in this pass. The
-diagram describes the source-controlled request flow; no response body or
-latency claim is implied.
+The API call path is covered by the test suite's curl shim, not by a real
+tenant. The diagram describes the request flow in the source; no response body
+or latency claim is implied.
 
 ## Known limitations
 

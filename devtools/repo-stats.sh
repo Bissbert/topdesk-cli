@@ -33,7 +33,7 @@ printf 'shell files            %s\n' "$(printf '%s\n' "$all" | wc -l | tr -d ' '
 printf 'shell lines            %s\n' "$(cat $all | wc -l | tr -d ' ')"
 printf 'shell bytes            %s\n' "$(cat $all | wc -c | tr -d ' ')"
 printf 'subcommands            %s\n' \
-  "$(find tools -mindepth 1 -maxdepth 1 -type f -perm +111 | wc -l | tr -d ' ')"
+  "$(find tools -mindepth 1 -maxdepth 1 -type f -perm -u=x | wc -l | tr -d ' ')"
 printf 'version                %s\n' "$(sed -n 1p VERSION)"
 
 section 'Distinct API paths reached'

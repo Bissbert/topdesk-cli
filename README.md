@@ -66,8 +66,8 @@ Topdesk tenant:
 ./bin/topdesk doctor --help
 ```
 
-The local inspection commands are verified. The API commands require a real
-tenant and credentials, so they were not run against Topdesk for this pass.
+These four commands exit 0 in a Linux container. The API commands need a real
+tenant and credentials; they are covered only by the test suite's curl shim.
 
 ## How it works
 
@@ -138,27 +138,31 @@ Config file at `~/.config/topdesk/config` (XDG) or a path passed with `--config`
 | `TDX_TIMEOUT` | Request timeout in seconds (default `30`) |
 | `TDX_PAGE_SIZE` | Default page size for paginated calls (default `100`) |
 
-## Measured results
+## Results
 
-The measurement scripts count the current shell source and derive the command
-table from the executable files. The clean-source run used for this pass
-reported:
+All results come from `devtools/linux-run.sh`, run in a
+`python:3.12-slim-bookworm` container (`/bin/sh` is dash):
 
 | Measurement | Result |
 |---|---:|
 | shell files under `bin/`, `lib/`, and `tools/` | 35 |
-| shell source lines | 3,535 |
-| shell source bytes | 101,088 |
+| shell source lines | 3,538 |
+| shell source bytes | 101,111 |
 | executable tools | 27 |
+| `make test` with a fresh `HOME` | 31 of 33 pass, exit 2 |
 
-The repository test command was also run in a clean source snapshot. At the
-time of this pass it printed 5 passing and 28 failing checks yet returned
-status 0, because the test shims were not executable and the runner did not
-propagate TAP failures. Both defects were corrected on the default branch
-afterwards: the shims are executable and a failing TAP run now exits non-zero.
-See
-[`docs/measurement.md`](docs/measurement.md) for the commands and verification
-boundary.
+The two failing checks are config tests that write to the real user config
+instead of the test directory ([bug 5](docs/BUGS-FOUND.md#5-config-tests-write-to-the-real-user-config)).
+Running the suite again in the same `HOME` fails 19 checks, so run it with a
+throwaway `HOME` until that is fixed.
+
+`doctor` runs all its sections and prints a summary in the default, `--quiet`
+and `--verbose` modes. On Linux its permission check wrongly reports
+`0 of 27 tools are executable` ([bug 6](docs/BUGS-FOUND.md#6-doctor-counts-no-executable-tools-on-linux)),
+and it stops with exit 2 when `SHELL` is unset ([bug 7](docs/BUGS-FOUND.md#7-doctor-aborts-when-shell-is-unset)).
+
+See [`docs/measurement.md`](docs/measurement.md) for the commands and the full
+output.
 
 ## Repository layout
 
@@ -175,7 +179,9 @@ docs/             command table, subsystem write-ups, and measurement notes
 ## Known limitations
 
 - No real Topdesk tenant or credentials were available, so API responses,
-  authentication, uploads, downloads, and latency were not measured.
+  authentication, uploads, downloads, and latency are not covered.
+- `make test` edits `~/.config/topdesk/config` (bug 5), and `doctor` has two
+  open Linux issues (bugs 6 and 7). See [`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
 - `curl` is required. `jq` is optional for JSON formatting and required for
   tabular output and pagination helpers.
 - Configuration files are shell files sourced by the client. They are plain

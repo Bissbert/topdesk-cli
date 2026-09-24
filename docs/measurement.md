@@ -2,65 +2,115 @@
 
 # How this was measured
 
-Every number published by this documentation pass comes from a command run
-against the repository source. The measurement scripts are in
-[`../devtools/`](../devtools/) rather than the product's `tools/` directory.
+Every number in this documentation comes from one script run in a Linux
+container:
+
+```sh
+sh devtools/linux-run.sh > docs/captures/linux-run.txt
+```
+
+[`devtools/linux-run.sh`](../devtools/linux-run.sh) starts
+`python:3.12-slim-bookworm`, installs bash, curl, jq, make and git, mounts the
+repository read-only and copies it. No Topdesk tenant is contacted: the test
+suite uses the curl shim in `tests/bin`, and the `doctor` runs use an empty
+temporary config location. The full output is
+[`captures/linux-run.txt`](captures/linux-run.txt); every block below is taken
+from it.
 
 ```mermaid
 flowchart LR
-    S["tracked source snapshot"] --> R["repo-stats.sh"]
+    S["repository copy"] --> R["repo-stats.sh"]
     S --> C["command-surface.sh"]
-    R --> N["README measured results"]
-    C --> T["docs/commands.md"]
-    T --> V["diff against generator output"]
+    S --> T["make test"]
+    S --> D["doctor runs"]
+    R --> N["README results"]
+    C --> M["docs/commands.md"]
+    T --> B["BUGS-FOUND.md"]
+    D --> B
 
     style S fill:#1f6feb,stroke:#58a6ff,color:#fff
     style N fill:#238636,stroke:#3fb950,color:#fff
-    style T fill:#238636,stroke:#3fb950,color:#fff
-    style V fill:#8250df,stroke:#bc8cff,color:#fff
+    style M fill:#238636,stroke:#3fb950,color:#fff
+    style B fill:#8250df,stroke:#bc8cff,color:#fff
 ```
 
-## Source shape and command surface
+## Environment
 
-`devtools/repo-stats.sh` counts the shell files under `bin/`, `lib/`, and
-`tools/`, then prints their aggregate line and byte counts. It also counts the
-executable product tools. `devtools/command-surface.sh` scans each executable
-in `tools/` for its methods, default path, option labels, and line count, and
-prints the Markdown table used by [`commands.md`](commands.md).
+| | |
+|---|---|
+| Kernel | Linux 6.5.11-linuxkit, aarch64 (Docker Desktop VM) |
+| Image | `python:3.12-slim-bookworm` (`sha256:392307d2…23564e`) |
+| Tools | GNU bash 5.2.15, curl 7.88.1, jq 1.6; `/bin/sh` is dash |
+| Date | 2026-09-24 |
 
-The scripts were run against a clean snapshot of the tracked source so the
-table does not inherit unrelated worktree changes. The resulting values are
-copied into the README and the generated command table; rerun the scripts after
-source changes.
+## Source shape
 
-## Local verification
+`devtools/repo-stats.sh` counts the shell files under `bin/`, `lib/` and
+`tools/`, and the executable product tools:
 
-The following checkout-only commands were run successfully:
-
-```sh
-./bin/topdesk --version
-./bin/topdesk help
-./bin/topdesk config --help
-./bin/topdesk doctor --help
+```
+shell files            35
+shell lines            3538
+shell bytes            101111
+subcommands            27
+version                0.1.0
 ```
 
-These commands do not require a tenant. The bug reproductions in
-[`BUGS-FOUND.md`](BUGS-FOUND.md) were also run with an isolated temporary
-configuration location; their non-zero statuses are the current behavior being
-documented.
+`sh -n` reports no syntax errors in any of the 35 files under dash.
 
-## Test-suite boundary
+## Command table
 
-`make test` was run in a clean tracked snapshot, not in the documentation
-working tree. It printed `5` `ok` lines and `28` `not ok` lines, then returned
-status `0`; the runner currently does not propagate TAP failures. Because the
-test shims are not executable, the run also attempted real network requests.
-This result was not used as evidence of a real API response. The test suite is
-intended to use a curl shim, but the current file modes prevent that.
+`devtools/command-surface.sh` scans each executable in `tools/` and prints the
+table in [`commands.md`](commands.md). Its output is identical to
+that file (35 lines).
 
-## What was not measured
+## Local commands
 
-No real Topdesk hostname, tenant, credential, incident, attachment, response
-body, server latency, or network throughput was available. No API operation was
-run against a live service, and no animation was generated. The Mermaid
-diagrams are source-based explanations, not captured terminal recordings.
+These run from the checkout and need no tenant:
+
+```
+topdesk --version  exit=0
+topdesk help  exit=0
+topdesk config --help  exit=0
+topdesk doctor --help  exit=0
+```
+
+## Test suite
+
+`make test` with a fresh `HOME`:
+
+```
+ok=31 not_ok=2 exit=2
+```
+
+Checks 24 (`config init template`) and 25 (`config edit invokes editor`) fail.
+Both write to the real user config instead of the test directory, and a second
+run in the same `HOME` fails 19 checks. That is entry 5 in
+[Bugs found](BUGS-FOUND.md).
+
+With one check deliberately broken in a copy of `tests/run.sh`, the runner
+reports it and exits 1, so TAP failures reach the exit status (entry 4).
+
+## `doctor`
+
+With an empty config location, the default run prints all seven sections and
+the summary:
+
+```
+Summary
+Checks passed: 3
+Warnings: 3
+Checks failed: 3
+```
+
+`--quiet` prints the three failed checks and the two counts (5 lines).
+`--verbose` adds 17 info lines. The permission section reports
+`0 of 27 tools are executable` although all are (entry 6), and with `SHELL`
+unset the run stops at `tools/doctor:143` with exit 2 (entry 7).
+
+## Not covered
+
+No Topdesk hostname, tenant, credential, incident, attachment, response body,
+server latency or network throughput was available. No API operation was run
+against a live service; the API tests use the curl shim. The Mermaid diagrams
+describe the source; they are not captured program output.
