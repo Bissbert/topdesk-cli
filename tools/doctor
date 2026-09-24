@@ -140,7 +140,7 @@ else
 fi
 
 # Check shell type
-check_info "Shell: $SHELL"
+check_info "Shell: ${SHELL:-unknown}"
 check_info "Script interpreter: $(readlink /proc/$$/exe 2>/dev/null || echo 'unknown')"
 
 # 2. Check configuration
@@ -283,7 +283,7 @@ fi
 section "Checking tool permissions..."
 
 TOOLS_COUNT=$(find "$_root/tools" -type f 2>/dev/null | wc -l | tr -d ' ')
-EXEC_COUNT=$(find "$_root/tools" -type f -perm +111 2>/dev/null | wc -l | tr -d ' ')
+EXEC_COUNT=$(find "$_root/tools" -type f -perm -u=x 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$TOOLS_COUNT" -eq "$EXEC_COUNT" ]; then
   check_pass "All $TOOLS_COUNT tools have executable permissions"

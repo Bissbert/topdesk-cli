@@ -178,7 +178,7 @@ check:
 
 test:
 	@echo ">> Running test suite"
-	@bash tests/run.sh
+	@bash tests/all.sh
 
 fmt:
 	@echo ">> Formatting shell sources with shfmt"

@@ -8,6 +8,8 @@ log=${TEST_CURL_LOG:-}
 out_file=""
 dump_header=""
 write_fmt=""
+include_headers=0
+fail_on_http=0
 
 set -- "$@"
 while [ "$#" -gt 0 ]; do
@@ -15,10 +17,14 @@ while [ "$#" -gt 0 ]; do
     -o) out_file=$2; shift 2 ;;
     --dump-header) dump_header=$2; shift 2 ;;
     -w|--write-out) write_fmt=$2; shift 2 ;;
-    -H|-X|--connect-timeout|--max-time|--retry|--retry-delay|--cacert|--capath|-d|--data|--data-binary|--header|--accept|--content)
+    -H|-X|-F|--form|-u|--user|--connect-timeout|--max-time|--retry|--retry-delay|--cacert|--capath|-d|--data|--data-binary|--header|--accept|--content)
       shift 2 ;;
     --retry-all-errors|-s|-S|-k|--insecure)
       shift ;;
+    -i|--include)
+      include_headers=1; shift ;;
+    -f|--fail)
+      fail_on_http=1; shift ;;
     -sS)
       shift ;;
     --)
@@ -102,12 +108,17 @@ case "$url" in
     ;;
   http://mock.local/tas/api/operators/op1)
     body='{"id":"op1","name":"Operator One","networkLoginName":"op1"}' ;;
-  http://mock.local/error/404)
+  http://mock.local/error/404|http://mock.local/error/404\?*)
     body='{"error":"Not Found"}'
     http_code=404
     reason="Not Found"
     ;;
-  http://mock.local/error/timeout)
+  http://mock.local/error/401|http://mock.local/error/401\?*)
+    body='{"error":"Unauthorized"}'
+    http_code=401
+    reason="Unauthorized"
+    ;;
+  http://mock.local/error/timeout|http://mock.local/error/timeout\?*)
     http_code=000
     reason="Timeout"
     if [ -n "$dump_header" ]; then : >"$dump_header"; fi
@@ -115,7 +126,7 @@ case "$url" in
     if [ -n "$write_fmt" ]; then printf '000'; fi
     exit 28
     ;;
-  http://mock.local/error/500)
+  http://mock.local/error/500|http://mock.local/error/500\?*)
     body='{"error":"Boom"}'
     http_code=500
     reason="Internal Server Error"
@@ -129,6 +140,15 @@ if [ -n "$dump_header" ]; then
   printf 'HTTP/1.1 %s %s\r\n' "$http_code" "$reason" >"$dump_header"
 fi
 
+if [ "$fail_on_http" = 1 ] && [ "$http_code" -ge 400 ]; then
+  printf 'curl: (22) The requested URL returned error: %s\n' "$http_code" >&2
+  exit 22
+fi
+
+if [ "$include_headers" = 1 ]; then
+  body=$(printf 'HTTP/1.1 %s %s\r\nContent-Type: application/json\r\n\r\n%s' "$http_code" "$reason" "$body")
+fi
+
 if [ -n "$out_file" ]; then
   printf '%s' "$body" >"$out_file"
 else
@@ -136,14 +156,13 @@ else
 fi
 
 if [ -n "$write_fmt" ]; then
-  if [ "$write_fmt" = '%{http_code}' ]; then
-    printf '%s' "$http_code"
-  else
-    printf '%s' "$write_fmt"
-  fi
+  # Expand the two variables the tools use, then the \n escapes.
+  w=$(printf '%s' "$write_fmt" | sed -e "s/%{http_code}/$http_code/g" -e 's/%{time_total}/0.012/g')
+  printf "$w"
 fi
 
 case "$http_code" in
+  401) exit 0 ;;
   404) exit 0 ;;
   500) exit 0 ;;
 esac

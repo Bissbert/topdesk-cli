@@ -189,18 +189,16 @@ if contains "$out" 'Operator One' && grep -F -- 'name=Operator%20One' "$TEST_CUR
 t=$((t+1))
 
 # 24) config init creates template
-CFG_DIR="$TEST_DIR/tmp-config"
-rm -rf "$CFG_DIR"
-TOOLBOX_CONFIG_DIR="$CFG_DIR" topdesk config init >/dev/null 2>&1 || true
-cfg_file="$CFG_DIR/config"
+CFG_DIR="$TEST_HOME/cfg-init"
+XDG_CONFIG_HOME="$CFG_DIR" topdesk config init >/dev/null 2>&1 || true
+cfg_file="$CFG_DIR/topdesk/config"
 if [ -f "$cfg_file" ] && grep -q 'TDX_BASE_URL' "$cfg_file"; then ok $t "config init template"; else not_ok $t "config init template"; fi
 t=$((t+1))
 
 # 25) config edit uses EDITOR and preserves template
-CFG_EDIT_DIR="$TEST_DIR/tmp-config-edit"
-rm -rf "$CFG_EDIT_DIR"
-TOOLBOX_CONFIG_DIR="$CFG_EDIT_DIR" EDITOR=editor topdesk config edit >/dev/null 2>&1 || true
-cfg_edit_file="$CFG_EDIT_DIR/config"
+CFG_EDIT_DIR="$TEST_HOME/cfg-edit"
+XDG_CONFIG_HOME="$CFG_EDIT_DIR" EDITOR=editor topdesk config edit >/dev/null 2>&1 || true
+cfg_edit_file="$CFG_EDIT_DIR/topdesk/config"
 if [ -f "$cfg_edit_file" ] && grep -q '# edited by stub' "$cfg_edit_file"; then ok $t "config edit invokes editor"; else not_ok $t "config edit invokes editor"; fi
 t=$((t+1))
 
@@ -273,8 +271,6 @@ t=$((t+1))
 comp=$(topdesk completion zsh || true)
 if contains "$comp" '--dry-run' && contains "$comp" 'GET POST'; then ok $t "completion zsh call options"; else not_ok $t "completion zsh call options"; fi
 t=$((t+1))
-
-rm -rf "$CFG_DIR" "$CFG_EDIT_DIR"
 
 failures=$TEST_FAILURES
 rm -f "$errfile"
