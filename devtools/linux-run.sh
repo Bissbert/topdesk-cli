@@ -47,29 +47,35 @@ done
 section "test shim modes"
 stat -c "%A %n" tests/bin/curl tests/bin/editor
 
-section "make test, fresh HOME"
+section "make test, fresh HOME (entries 2, 4, 5)"
 export SHELL=/bin/bash
 fresh() { rm -rf /tmp/home && mkdir /tmp/home && export HOME=/tmp/home; }
 fresh
 make test > /tmp/test.log 2>&1; rc=$?
-cat /tmp/test.log
-echo "ok=$(grep -c "^ok " /tmp/test.log) not_ok=$(grep -c "^not ok " /tmp/test.log) exit=$rc"
+grep -E "^# |^1\.\.|^not ok|^Summary|^Failing" /tmp/test.log
+echo "exit=$rc"
 
 section "files make test left under HOME"
-find "$HOME" -type f | sed "s|^$HOME|\$HOME|"
-grep -c "edited by stub" "$HOME/.config/topdesk/config" | sed "s/^/lines added by the stub editor: /"
+echo "files: $(find "$HOME" -type f | wc -l)"
 
 section "make test again, same HOME"
 make test > /tmp/test2.log 2>&1; rc=$?
-echo "ok=$(grep -c "^ok " /tmp/test2.log) not_ok=$(grep -c "^not ok " /tmp/test2.log) exit=$rc"
-grep -c "edited by stub" "$HOME/.config/topdesk/config" | sed "s/^/lines added by the stub editor: /"
+grep "^Summary" /tmp/test2.log; echo "exit=$rc"
+
+section "make test with an existing user config"
+mkdir -p "$HOME/.config/topdesk"
+printf "TDX_BASE_URL=https://tenant.example.com\n" > "$HOME/.config/topdesk/config"
+before=$(cksum < "$HOME/.config/topdesk/config")
+make test > /tmp/test3.log 2>&1; rc=$?
+grep "^Summary" /tmp/test3.log; echo "exit=$rc"
+[ "$(cksum < "$HOME/.config/topdesk/config")" = "$before" ] && echo "user config unchanged"
 
 section "TAP status propagation: one check forced to fail, fresh HOME"
 fresh
 cp tests/run.sh /tmp/run.sh.orig
 sed -i "s/contains \"\$out\" \"Usage: topdesk\"/contains \"\$out\" \"NO SUCH TEXT\"/" tests/run.sh
-bash tests/run.sh > /tmp/test3.log 2>&1; rc=$?
-grep "^not ok" /tmp/test3.log
+bash tests/run.sh > /tmp/test4.log 2>&1; rc=$?
+grep "^not ok" /tmp/test4.log
 echo "exit=$rc"
 cp /tmp/run.sh.orig tests/run.sh
 
@@ -87,7 +93,7 @@ section "doctor --verbose, empty config location"
 doctor --verbose > /tmp/docv.log
 echo "info lines=$(grep -c "ℹ" /tmp/docv.log) summary lines=$(grep -c "Checks passed" /tmp/docv.log)"
 
-section "doctor with SHELL unset"
-( unset SHELL; XDG_CONFIG_HOME="$probe" HOME="$probe" ./bin/topdesk doctor >/tmp/docs.log 2>&1; echo "exit=$?" )
-sed "s/\x1b\[[0-9;]*m//g" /tmp/docs.log | tail -2
+section "doctor with SHELL unset (entry 7)"
+( unset SHELL; XDG_CONFIG_HOME="$probe" HOME="$probe" ./bin/topdesk doctor --verbose >/tmp/docs.log 2>&1; echo "exit=$?" )
+sed "s/\x1b\[[0-9;]*m//g" /tmp/docs.log | grep -E "Shell:|Checks failed"
 '

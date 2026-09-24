@@ -2,9 +2,10 @@
 
 # Bugs found
 
-Four bugs were reproduced, reviewed and fixed on `master`. Three more turned
-up when everything was re-run in a Linux container (see
-[How this was measured](measurement.md)); they are still open.
+All seven bugs are fixed. Entries 5 to 7 turned up when everything was re-run
+in a Linux container (see [How this was measured](measurement.md)). Every entry
+has a regression check in [`tests/`](../tests): entries 1, 3, 6 and 7 in
+`doctor.sh`, entries 2, 4 and 5 in `isolation.sh`.
 
 | # | Entry | Status |
 |---|---|---|
@@ -12,9 +13,9 @@ up when everything was re-run in a Linux container (see
 | 2 | Test shims are not executable | Fixed in [`aa52313`](https://github.com/Bissbert/topdesk-cli/commit/aa52313) |
 | 3 | `doctor --quiet` aborts at the first section | Fixed in [`a5c400c`](https://github.com/Bissbert/topdesk-cli/commit/a5c400c) |
 | 4 | TAP failures do not affect the exit status | Fixed in [`ab48639`](https://github.com/Bissbert/topdesk-cli/commit/ab48639) |
-| 5 | Config tests write to the real user config | Open |
-| 6 | `doctor` counts no executable tools on Linux | Open |
-| 7 | `doctor` aborts when `SHELL` is unset | Open |
+| 5 | Config tests write to the real user config | Fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) |
+| 6 | `doctor` counts no executable tools on Linux | Fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) |
+| 7 | `doctor` aborts when `SHELL` is unset | Fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) |
 
 The checks below run inside the container that
 [`devtools/linux-run.sh`](../devtools/linux-run.sh) sets up
@@ -23,15 +24,16 @@ from a copy of the repository.
 
 ```mermaid
 flowchart TD
-    D["doctor"] --> I["check_info / section<br/>return 0"]
+    D["doctor"] --> I["check_info / section<br/>return 0 (entries 1, 3)"]
     I --> C["all sections run"]
-    C --> S["summary + exit status"]
-    D -. "SHELL unset" .-> X["set -u abort<br/>exit 2 (entry 7)"]
-    C -. "GNU find" .-> P["0 of 27 tools executable<br/>(entry 6)"]
+    C --> P["-perm -u=x: all 27 tools<br/>executable (entry 6)"]
+    C --> H["SHELL unset: Shell: unknown<br/>(entry 7)"]
+    P --> S["summary + exit status"]
+    H --> S
 
     style S fill:#238636,stroke:#3fb950,color:#fff
-    style X fill:#da3633,stroke:#f85149,color:#fff
-    style P fill:#9e6a03,stroke:#d29922,color:#fff
+    style P fill:#238636,stroke:#3fb950,color:#fff
+    style H fill:#238636,stroke:#3fb950,color:#fff
 ```
 
 ## 1. Suppressed `check_info` aborts `doctor`
@@ -54,7 +56,7 @@ probe=$(mktemp -d)
 XDG_CONFIG_HOME="$probe" HOME="$probe" ./bin/topdesk doctor
 ```
 
-All seven sections and the summary print (`Checks passed: 3`, `Warnings: 3`,
+All seven sections and the summary print (`Checks passed: 4`, `Warnings: 2`,
 `Checks failed: 3` with an empty config location), and the exit status is 1
 because of the failed configuration checks.
 
@@ -78,8 +80,8 @@ stat -c '%A %n' tests/bin/curl tests/bin/editor
 make test
 ```
 
-Both files are `-rwxr-xr-x`. With a fresh `HOME`, 31 of 33 checks pass; the
-two failures are entry 5.
+Both files are `-rwxr-xr-x`, and `make test` ends with
+`Summary: 82 passed, 0 failed`.
 
 ## 3. `doctor --quiet` aborts at the first section
 
@@ -118,86 +120,103 @@ looks for text that is not there, then runs it:
 
 ```
 not ok 1 - help output
-not ok 24 - config init template
-not ok 25 - config edit invokes editor
 exit=1
 ```
 
 ## 5. Config tests write to the real user config
 
-**Status:** open. Found in the Linux run.
+**Status:** fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) ([#5](https://github.com/Bissbert/topdesk-cli/issues/5)).
 
-**Files:** `tests/run.sh:191-205`, `tools/config` (`edit_config`),
-`lib/config.sh:7-8`, `lib/config.sh:33-43`
+**Files:** `tests/helpers.sh`, `tests/run.sh` (checks 24 and 25)
 
-**What happens:** checks 24 and 25 set `TOOLBOX_CONFIG_DIR` to a directory
-under `tests/` and expect `config init` and `config edit` to write there.
+**What happened:** checks 24 and 25 set `TOOLBOX_CONFIG_DIR` to a directory
+under `tests/` and expected `config init` and `config edit` to write there.
 Both commands write to `DEFAULT_USER_CONFIG`, which is
 `${XDG_CONFIG_HOME:-$HOME/.config}/topdesk/config`, so:
 
-- checks 24 and 25 always fail;
-- the suite creates or edits the developer's own config. The stub editor
-  appends `# edited by stub` to it on every run;
-- once that file exists, `find_config_file` prefers it over the test
-  environment, and its template `TDX_BASE_URL` replaces `http://mock.local`.
-  A second run fails 19 checks.
+- checks 24 and 25 always failed;
+- the suite created or edited the developer's own config. The stub editor
+  appended `# edited by stub` to it on every run;
+- once that file existed, `find_config_file` preferred it over the test
+  environment, and its template `TDX_BASE_URL` replaced `http://mock.local`.
+  A second run failed 19 checks (`ok=14 not_ok=19 exit=2`).
 
-**Reproduce** with a fresh `HOME`:
+**What changed:** `tests/helpers.sh` creates a temporary directory for each
+test file, points `HOME`, `XDG_CONFIG_HOME` and `TOOLBOX_CONFIG_DIR` at it,
+unsets `TOPDESK_CONFIG`, and removes it on exit. Checks 24 and 25 set
+`XDG_CONFIG_HOME` to their own directories and look for
+`topdesk/config` there.
 
-```sh
-make test          # ok=31 not_ok=2
-find "$HOME" -type f
-make test          # ok=14 not_ok=19
+**Check:** `tests/isolation.sh` runs `tests/run.sh` twice with a `HOME` that
+already holds a config pointing at another tenant. Both runs pass, the file is
+unchanged, and nothing else is written to it. The Linux run shows:
+
 ```
+=== files make test left under HOME
+files: 0
 
-```
-$HOME/.config/topdesk/config
-lines added by the stub editor: 1
-ok=14 not_ok=19 exit=2
-lines added by the stub editor: 2
-```
+=== make test again, same HOME
+Summary: 82 passed, 0 failed
 
-**Possible fix:** set `XDG_CONFIG_HOME` (and `HOME`) to a directory under
-`tests/` in `tests/helpers.sh`, and point checks 24 and 25 at that location,
-or make `config init`/`edit` honour `TOOLBOX_CONFIG_DIR` when it is set.
+=== make test with an existing user config
+Summary: 82 passed, 0 failed
+user config unchanged
+```
 
 ## 6. `doctor` counts no executable tools on Linux
 
-**Status:** open. Found in the Linux run.
+**Status:** fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) ([#6](https://github.com/Bissbert/topdesk-cli/issues/6)).
 
-**File:** `tools/doctor:286`
+**File:** `tools/doctor` (tool permissions)
 
-**What happens:** the permission check runs
+**What happened:** the permission check ran
 `find "$_root/tools" -type f -perm +111`. `+111` is BSD `find` syntax. GNU
-`find` rejects it, the error goes to `/dev/null`, and the count is 0:
+`find` rejects it, the error went to `/dev/null`, and the count was 0:
 
 ```
 Checking tool permissions...
 ! 0 of 27 tools are executable
 ```
 
-All 27 files are executable, so the warning is false. With `--fix`, `doctor`
-runs `chmod +x` on files that already have it.
+All 27 files were executable, so the warning was false. With `--fix`, `doctor`
+ran `chmod +x` on files that already had it.
 
-The measurement scripts in `devtools/` used the same expression and were
-changed to `-perm -u=x`, which BSD and GNU `find` both accept.
+**What changed:** the check uses `-perm -u=x`, which BSD and GNU `find` both
+accept, as the measurement scripts in `devtools/` already did.
 
-**Possible fix:** use `-perm -u=x` (or test each file with `[ -x ]`).
+**Check:** `tests/doctor.sh` expects `All 27 tools have executable permissions`,
+then removes the bit from one tool in a copy of the tree and expects
+`26 of 27 tools are executable` and a working `--fix`. The Linux run shows:
+
+```
+Checking tool permissions...
+✓ All 27 tools have executable permissions
+```
 
 ## 7. `doctor` aborts when `SHELL` is unset
 
-**Status:** open. Found in the Linux run.
+**Status:** fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d) ([#7](https://github.com/Bissbert/topdesk-cli/issues/7)).
 
-**File:** `tools/doctor:143`
+**File:** `tools/doctor` (dependency section)
 
-**What happens:** `doctor` runs with `set -u` and prints
-`check_info "Shell: $SHELL"`. When `SHELL` is not set (for example in
+**What happened:** `doctor` runs with `set -u` and printed
+`check_info "Shell: $SHELL"`. When `SHELL` was not set (for example in
 `docker run`, some cron and systemd environments, or `env -i`), the shell
-stops:
+stopped:
 
 ```
 ./tools/doctor: 143: SHELL: parameter not set
 exit=2
 ```
 
-**Possible fix:** use `${SHELL:-unknown}`.
+**What changed:** the line prints `${SHELL:-unknown}`.
+
+**Check:** `tests/doctor.sh` runs `env -u SHELL topdesk doctor --verbose`. The
+Linux run shows the summary and the failed-config exit status instead of the
+abort:
+
+```
+exit=1
+ℹ Shell: unknown
+Checks failed: 3
+```

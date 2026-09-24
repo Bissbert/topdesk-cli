@@ -70,14 +70,12 @@ so it is not a read-only diagnostic option.
 `check_info` and `section` always return 0, so the default, `--quiet` and
 `--verbose` runs reach the summary (fixed in
 [`d6bc17a`](https://github.com/Bissbert/topdesk-cli/commit/d6bc17a) and
-[`a5c400c`](https://github.com/Bissbert/topdesk-cli/commit/a5c400c)). Two
-issues remain open, both found on Linux; see [`BUGS-FOUND.md`](BUGS-FOUND.md):
-the permission check uses BSD-only `find -perm +111` and reports no executable
-tools, and the run stops with exit 2 when `SHELL` is unset.
+[`a5c400c`](https://github.com/Bissbert/topdesk-cli/commit/a5c400c)). The
+permission check uses `find -perm -u=x`, which GNU `find` accepts, and an unset
+`SHELL` prints `Shell: unknown` (both fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d); see
+[`BUGS-FOUND.md`](BUGS-FOUND.md)). `tests/doctor.sh` covers each of these.
 
 ## Known limitations
 
-- On Linux, `doctor` warns that no tools are executable, and it stops when
-  `SHELL` is unset (bugs 6 and 7).
 - API status behavior is covered only by the curl shim, not by a real tenant.
 - A diagnostic body preview can carry sensitive server data into stderr logs.
