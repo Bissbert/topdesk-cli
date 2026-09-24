@@ -66,7 +66,7 @@ topdesk doctor --help  exit=0
 -rwxr-xr-x tests/bin/curl
 -rwxr-xr-x tests/bin/editor
 
-=== make test, fresh HOME (entries 2, 4, 5)
+=== make test, fresh HOME
 # run.sh
 1..33
 # commands.sh
@@ -137,7 +137,7 @@ lines=5
 === doctor --verbose, empty config location
 info lines=16 summary lines=1
 
-=== doctor with SHELL unset (entry 7)
+=== doctor with SHELL unset
 exit=1
 ℹ Shell: unknown
 Checks failed: 3

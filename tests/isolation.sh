@@ -1,6 +1,6 @@
 #!/bin/sh
-# The suite must not depend on or change the caller's config (entry 5), and a
-# failing check must fail the run (entry 4).
+# The suite must not depend on or change the caller's config (#5), and a
+# failing check must fail the run.
 set -eu
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -22,13 +22,13 @@ check "the user config is unchanged" [ "$(cksum < "$dev/.config/topdesk/config")
 check "nothing else is written to HOME" [ "$(find "$dev" -type f | wc -l | tr -d ' ')" -eq 1 ]
 rm -rf "$dev"
 
-# Entry 4: one check forced to fail gives a non-zero exit.
+# One check forced to fail gives a non-zero exit.
 sed 's/"Usage: topdesk"/"NO SUCH TEXT"/' "$DIR/run.sh" > "$DIR/.run-broken.sh"
 rc=0; bash "$DIR/.run-broken.sh" >"$TEST_HOME/broken.log" 2>&1 || rc=$?
 rm -f "$DIR/.run-broken.sh"
 check "a failing check fails the run" sh -c '[ "$1" -ne 0 ] && grep -q "^not ok 1 " "$2"' _ "$rc" "$TEST_HOME/broken.log"
 
-# Entry 2: the shims are committed executable.
+# The shims are committed executable.
 check "tests/bin shims are executable" [ -x "$DIR/bin/curl" ] && [ -x "$DIR/bin/editor" ]
 
 finish

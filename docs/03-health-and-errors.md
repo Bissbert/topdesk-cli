@@ -72,8 +72,8 @@ so it is not a read-only diagnostic option.
 [`d6bc17a`](https://github.com/Bissbert/topdesk-cli/commit/d6bc17a) and
 [`a5c400c`](https://github.com/Bissbert/topdesk-cli/commit/a5c400c)). The
 permission check uses `find -perm -u=x`, which GNU `find` accepts, and an unset
-`SHELL` prints `Shell: unknown` (both fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d); see
-[`BUGS-FOUND.md`](BUGS-FOUND.md)). `tests/doctor.sh` covers each of these.
+`SHELL` prints `Shell: unknown` (both fixed in [`35eab2d`](https://github.com/Bissbert/topdesk-cli/commit/35eab2d),
+[#6](https://github.com/Bissbert/topdesk-cli/issues/6) and [#7](https://github.com/Bissbert/topdesk-cli/issues/7)). `tests/doctor.sh` covers each of these.
 
 ## Known limitations
 

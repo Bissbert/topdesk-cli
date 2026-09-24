@@ -1,6 +1,6 @@
 #!/bin/sh
-# doctor: every section runs, exit status, and entries 1, 3, 6 and 7 of
-# docs/BUGS-FOUND.md.
+# doctor: every section runs in each mode, tool permissions (#6), unset SHELL
+# (#7) and --fix.
 set -eu
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -9,18 +9,18 @@ unset TDX_BASE_URL TDX_AUTH_TOKEN TDX_VERIFY_TLS
 strip() { sed 's/\x1b\[[0-9;]*m//g'; }
 
 rc=0; out=$(topdesk doctor 2>&1 | strip) || rc=$?
-check "doctor reaches the summary with an empty config (entry 1)" contains "$out" 'Checks failed:'
+check "doctor reaches the summary with an empty config in default mode" contains "$out" 'Checks failed:'
 check "doctor reports the missing base URL" contains "$out" 'TDX_BASE_URL is not configured'
 tools=$(find "$ROOT_DIR/tools" -type f | wc -l | tr -d ' ')
-check "doctor counts every tool as executable (entry 6)" contains "$out" "All $tools tools have executable permissions"
+check "doctor counts every tool as executable (#6)" contains "$out" "All $tools tools have executable permissions"
 
 rc=0; out=$(topdesk doctor --quiet 2>&1 | strip) || rc=$?
-check "doctor --quiet prints failures and the summary (entry 3)" \
+check "doctor --quiet prints failures and the summary" \
   sh -c 'printf "%s" "$1" | grep -q "No configuration file found" && printf "%s" "$1" | grep -q "Checks failed"' _ "$out"
 check "doctor --quiet hides passing checks" sh -c '! printf "%s" "$1" | grep -qF "✓"' _ "$out"
 
 rc=0; env -u SHELL "$ROOT_DIR/bin/topdesk" doctor --verbose >"$TEST_HOME/doc.log" 2>&1 || rc=$?
-check "doctor runs with SHELL unset (entry 7)" sh -c '[ "$1" -ne 2 ] && grep -q "Shell: unknown" "$2"' _ "$rc" "$TEST_HOME/doc.log"
+check "doctor runs with SHELL unset (#7)" sh -c '[ "$1" -ne 2 ] && grep -q "Shell: unknown" "$2"' _ "$rc" "$TEST_HOME/doc.log"
 
 # A complete configuration against the mock API passes the config checks.
 mkdir -p "$XDG_CONFIG_HOME/topdesk"

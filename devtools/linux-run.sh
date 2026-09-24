@@ -47,7 +47,7 @@ done
 section "test shim modes"
 stat -c "%A %n" tests/bin/curl tests/bin/editor
 
-section "make test, fresh HOME (entries 2, 4, 5)"
+section "make test, fresh HOME"
 export SHELL=/bin/bash
 fresh() { rm -rf /tmp/home && mkdir /tmp/home && export HOME=/tmp/home; }
 fresh
@@ -93,7 +93,7 @@ section "doctor --verbose, empty config location"
 doctor --verbose > /tmp/docv.log
 echo "info lines=$(grep -c "ℹ" /tmp/docv.log) summary lines=$(grep -c "Checks passed" /tmp/docv.log)"
 
-section "doctor with SHELL unset (entry 7)"
+section "doctor with SHELL unset"
 ( unset SHELL; XDG_CONFIG_HOME="$probe" HOME="$probe" ./bin/topdesk doctor --verbose >/tmp/docs.log 2>&1; echo "exit=$?" )
 sed "s/\x1b\[[0-9;]*m//g" /tmp/docs.log | grep -E "Shell:|Checks failed"
 '

@@ -153,8 +153,8 @@ All results come from `devtools/linux-run.sh`, run in a
 
 `doctor` runs all its sections and prints a summary in the default, `--quiet`
 and `--verbose` modes, counts all 27 tools as executable, and runs with `SHELL`
-unset. The seven bugs found so far are fixed; see
-[`docs/BUGS-FOUND.md`](docs/BUGS-FOUND.md).
+unset. Bugs are tracked as
+[GitHub issues](https://github.com/Bissbert/topdesk-cli/issues).
 
 See [`docs/measurement.md`](docs/measurement.md) for the commands and the full
 output.

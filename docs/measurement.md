@@ -25,7 +25,7 @@ flowchart LR
     S --> D["doctor runs"]
     R --> N["README results"]
     C --> M["docs/commands.md"]
-    T --> B["BUGS-FOUND.md"]
+    T --> B["test and doctor results"]
     D --> B
 
     style S fill:#1f6feb,stroke:#58a6ff,color:#fff
@@ -95,12 +95,11 @@ exit=0
 
 The run leaves no files in `HOME`. A second run in the same `HOME`, and a run
 with an existing `~/.config/topdesk/config` pointing at another tenant, both
-give the same summary, and that config file is unchanged (entry 5 in
-[Bugs found](BUGS-FOUND.md)).
+give the same summary, and that config file is unchanged
+([#5](https://github.com/Bissbert/topdesk-cli/issues/5)).
 
 With one check deliberately broken in a copy of `tests/run.sh`, the runner
-reports only that check and exits 1, so TAP failures reach the exit status
-(entry 4).
+reports only that check and exits 1, so TAP failures reach the exit status.
 
 ## `doctor`
 
@@ -116,9 +115,9 @@ Checks failed: 3
 
 `--quiet` prints the three failed checks and the two counts (5 lines).
 `--verbose` adds 16 info lines. The permission section reports
-`All 27 tools have executable permissions` (entry 6). With `SHELL` unset the
+`All 27 tools have executable permissions` ([#6](https://github.com/Bissbert/topdesk-cli/issues/6)). With `SHELL` unset the
 run prints `Shell: unknown` and reaches the summary, exiting 1 for the failed
-configuration checks (entry 7).
+configuration checks ([#7](https://github.com/Bissbert/topdesk-cli/issues/7)).
 
 ## Not covered
 

@@ -11,6 +11,5 @@ the product's command directory.
 | 3 | [Health checks and errors](03-health-and-errors.md) | The `ping`/`doctor` paths and their exit behavior. |
 | — | [Command surface](commands.md) | Every executable in `tools/`, generated from the source files. |
 | — | [Measurement](measurement.md) | The Linux container run behind every number. |
-| — | [Bugs found](BUGS-FOUND.md) | Seven fixed bugs with their commits. |
 
 [← back to the overview](../README.md)
